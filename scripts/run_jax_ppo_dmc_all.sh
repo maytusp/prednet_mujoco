@@ -5,8 +5,8 @@
 #SBATCH -n 1                 # One Slurm task
 #SBATCH -c 12                # CPU cores available to the host code.
 
-cd "$(dirname "$0")/.."
+cd ..
 SCRIPT_DIR="$(pwd)"
-echo "Script directory: ${SCRIPT_DIR}"
+echo "Script directory: $SCRIPT_DIR"
 
 ENVS="${ENVS:-HumanoidRun HopperHop CheetahRun}" bash scripts/run_jax_ppo_dmc.sh

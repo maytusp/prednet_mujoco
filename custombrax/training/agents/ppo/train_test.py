@@ -1,0 +1,332 @@
+# Copyright 2026 The Brax Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""PPO tests."""
+
+import functools
+import pickle
+from absl.testing import absltest
+from absl.testing import parameterized
+from brax import envs
+from custombrax.training.acme import running_statistics
+from custombrax.training.agents.ppo import networks as ppo_networks
+from custombrax.training.agents.ppo import networks_vision as ppo_networks_vision
+from custombrax.training.agents.ppo import train as ppo
+import jax
+from jax import numpy as jnp
+
+
+class PPOTest(parameterized.TestCase):
+  """Tests for PPO module."""
+
+
+  @parameterized.parameters('ndarray', 'dict_state')
+  def testTrain(self, obs_mode):
+    """Test PPO with a simple env."""
+    fast = envs.get_environment('fast', obs_mode=obs_mode)
+    _, _, metrics = ppo.train(
+        fast,
+        num_timesteps=2**15,
+        episode_length=128,
+        num_envs=64,
+        learning_rate=3e-4,
+        entropy_cost=1e-2,
+        discounting=0.95,
+        unroll_length=5,
+        batch_size=64,
+        num_minibatches=8,
+        num_updates_per_batch=4,
+        normalize_observations=True,
+        seed=2,
+        num_evals=3,
+        reward_scaling=10,
+        normalize_advantage=False,
+    )
+    self.assertGreater(metrics['eval/episode_reward'], 135)
+
+  @parameterized.product(
+      (
+          dict(distribution_type='normal', noise_std_type='scalar'),
+          dict(distribution_type='normal', noise_std_type='log'),
+          dict(distribution_type='tanh_normal', noise_std_type='log'),
+      ),
+      normalize_mode=['welford', 'ema'],
+      bootstrap_on_timeout=[True, False],
+      clipping_epsilon_value=[None, 0.1],
+  )
+  def testTrainWithNetworkParams(
+      self,
+      distribution_type,
+      noise_std_type,
+      normalize_mode,
+      bootstrap_on_timeout,
+      clipping_epsilon_value,
+  ):
+    """Test PPO runs with different network params."""
+    network_factory = functools.partial(
+        ppo_networks.make_ppo_networks,
+        distribution_type=distribution_type,
+        noise_std_type=noise_std_type,
+        init_noise_std=0.8,
+        activation=jax.nn.elu,
+        policy_network_kernel_init_fn=jax.nn.initializers.orthogonal,
+        policy_network_kernel_init_kwargs={'scale': jnp.sqrt(2.0)},
+        value_network_kernel_init_fn=jax.nn.initializers.orthogonal,
+        value_network_kernel_init_kwargs={'scale': jnp.sqrt(2.0)},
+        mean_clip_scale=5.0,
+        mean_kernel_init_fn=jax.nn.initializers.orthogonal,
+        mean_kernel_init_kwargs={'scale': 0.001},
+    )
+
+    _, _, _ = ppo.train(
+        envs.get_environment('inverted_pendulum', backend='spring'),
+        num_timesteps=2**13,
+        episode_length=50,
+        num_envs=64,
+        learning_rate=3e-4,
+        entropy_cost=1e-2,
+        discounting=0.95,
+        unroll_length=5,
+        batch_size=64,
+        num_minibatches=8,
+        num_updates_per_batch=4,
+        normalize_observations=True,
+        max_grad_norm=1.0,
+        seed=2,
+        reward_scaling=10,
+        normalize_advantage=False,
+        network_factory=network_factory,
+        learning_rate_schedule='ADAPTIVE_KL',
+        normalize_observations_mode=normalize_mode,
+        bootstrap_on_timeout=bootstrap_on_timeout,
+        clipping_epsilon_value=clipping_epsilon_value,
+    )
+
+  def testTrainWithDistributionalCritic(self):
+    """Test PPO runs with distributional critic and adaptive KL."""
+    network_factory = functools.partial(
+        ppo_networks.make_ppo_networks,
+        distribution_type='normal',
+        noise_std_type='log',
+        init_noise_std=0.8,
+        activation=jax.nn.elu,
+        use_distributional_critic=True,
+    )
+
+    _, _, metrics = ppo.train(
+        envs.get_environment('inverted_pendulum', backend='spring'),
+        num_timesteps=2**13,
+        episode_length=50,
+        num_envs=64,
+        learning_rate=3e-4,
+        entropy_cost=1e-2,
+        discounting=0.95,
+        unroll_length=5,
+        batch_size=64,
+        num_minibatches=8,
+        num_updates_per_batch=4,
+        normalize_observations=True,
+        max_grad_norm=1.0,
+        seed=2,
+        reward_scaling=10,
+        normalize_advantage=False,
+        network_factory=network_factory,
+        learning_rate_schedule='ADAPTIVE_KL',
+        clipping_epsilon_value=1.0,
+        use_distributional_critic=True,
+    )
+    # Verify training produced finite results.
+    self.assertTrue(
+        jnp.isfinite(metrics['eval/episode_reward']),
+        f'Reward is not finite: {metrics["eval/episode_reward"]}',
+    )
+
+  def testTrainAsymmetricActorCritic(self):
+    """Test PPO with asymmetric actor critic."""
+    env = envs.get_environment(
+        'fast', asymmetric_obs=True, obs_mode='dict_state'
+    )
+
+    network_factory = functools.partial(
+        ppo_networks.make_ppo_networks,
+        policy_hidden_layer_sizes=(32,),
+        value_hidden_layer_sizes=(32,),
+        policy_obs_key='state',
+        value_obs_key='privileged_state',
+    )
+
+    _, (_, policy_params, value_params), _ = ppo.train(
+        env,
+        num_timesteps=2**15,
+        episode_length=1000,
+        num_envs=64,
+        learning_rate=3e-4,
+        entropy_cost=1e-2,
+        discounting=0.95,
+        unroll_length=5,
+        batch_size=64,
+        num_minibatches=8,
+        num_updates_per_batch=4,
+        normalize_observations=False,
+        seed=2,
+        reward_scaling=10,
+        normalize_advantage=False,
+        network_factory=network_factory,
+    )
+
+    self.assertEqual(
+        policy_params['params']['hidden_0']['kernel'].shape,
+        (env.observation_size['state'], 32),
+    )
+    self.assertEqual(
+        value_params['params']['hidden_0']['kernel'].shape,
+        (env.observation_size['privileged_state'], 32),
+    )
+
+  @parameterized.parameters(True, False)
+  def testNetworkEncoding(self, normalize_observations):
+    env = envs.get_environment('fast')
+    original_inference, params, _ = ppo.train(
+        env,
+        num_timesteps=128,
+        episode_length=128,
+        num_envs=128,
+        normalize_observations=normalize_observations,
+    )
+    normalize_fn = lambda x, y: x
+    if normalize_observations:
+      normalize_fn = running_statistics.normalize
+    ppo_network = ppo_networks.make_ppo_networks(
+        env.observation_size, env.action_size, normalize_fn
+    )
+    inference = ppo_networks.make_inference_fn(ppo_network)
+    byte_encoding = pickle.dumps(params)
+    decoded_params = pickle.loads(byte_encoding)
+
+    # Compute one action.
+    state = env.reset(jax.random.PRNGKey(0))
+    original_action = original_inference(decoded_params)(
+        state.obs, jax.random.PRNGKey(0)
+    )[0]
+    action = inference(decoded_params)(state.obs, jax.random.PRNGKey(0))[0]
+    self.assertSequenceEqual(original_action, action)
+    env.step(state, action)
+
+  def testTrainDomainRandomize(self):
+    """Test PPO with domain randomization."""
+
+    def rand_fn(sys, rng):
+      @jax.vmap
+      def get_offset(rng):
+        offset = jax.random.uniform(rng, shape=(3,), minval=-0.1, maxval=0.1)
+        pos = sys.link.transform.pos.at[0].set(offset)
+        return pos
+
+      sys_v = sys.tree_replace({'link.inertia.transform.pos': get_offset(rng)})
+      in_axes = jax.tree.map(lambda x: None, sys)
+      in_axes = in_axes.tree_replace({'link.inertia.transform.pos': 0})
+      return sys_v, in_axes
+
+    _, _, _ = ppo.train(
+        envs.get_environment('inverted_pendulum', backend='spring'),
+        num_timesteps=2**15,
+        episode_length=1000,
+        num_envs=64,
+        learning_rate=3e-4,
+        entropy_cost=1e-2,
+        discounting=0.95,
+        unroll_length=5,
+        batch_size=64,
+        num_minibatches=8,
+        num_updates_per_batch=4,
+        normalize_observations=True,
+        seed=2,
+        reward_scaling=10,
+        normalize_advantage=False,
+        randomization_fn=rand_fn,
+    )
+
+  @parameterized.parameters(
+      {'asymmetric_obs': True, 'obs_mode': 'dict_pixels_state'},
+      {'asymmetric_obs': False, 'obs_mode': 'dict_pixels_state'},
+      {'asymmetric_obs': False, 'obs_mode': 'dict_pixels'},
+  )
+  def testPixelsPPO(self, asymmetric_obs, obs_mode):
+    """Test PPO with pixel observations."""
+    env = envs.get_environment(
+        'fast',
+        pixel_obs=True,
+        asymmetric_obs=asymmetric_obs,
+        obs_mode=obs_mode,
+    )
+    if obs_mode == 'dict_pixels':
+      policy_obs_key = ''
+      value_obs_key = ''
+    else:
+      policy_obs_key = 'state'
+      value_obs_key = 'privileged_state' if asymmetric_obs else 'state'
+
+    network_factory = functools.partial(
+        ppo_networks_vision.make_ppo_networks_vision,
+        policy_hidden_layer_sizes=(32,),
+        value_hidden_layer_sizes=(32,),
+        policy_obs_key=policy_obs_key,
+        value_obs_key=value_obs_key,
+    )
+
+    _, (_, policy_params, value_params), _ = ppo.train(
+        env,
+        num_timesteps=2**15,
+        episode_length=1000,
+        num_envs=64,
+        learning_rate=3e-4,
+        entropy_cost=1e-2,
+        discounting=0.95,
+        unroll_length=5,
+        batch_size=64,
+        num_minibatches=8,
+        num_updates_per_batch=4,
+        normalize_observations=True,
+        seed=2,
+        reward_scaling=10,
+        normalize_advantage=False,
+        network_factory=network_factory,
+        augment_pixels=True,
+    )
+    num_views = 2
+    cnn_features = 64
+
+    if asymmetric_obs:
+      self.assertEqual(
+          policy_params['params']['MLP_0']['hidden_0']['kernel'].shape,
+          (num_views * cnn_features + env.observation_size['state'], 32),
+      )
+      self.assertEqual(
+          value_params['params']['MLP_0']['hidden_0']['kernel'].shape,
+          (
+              num_views * cnn_features
+              + env.observation_size['privileged_state'],
+              32,
+          ),
+      )
+    if obs_mode == 'dict_pixels':
+      self.assertEqual(
+          policy_params['params']['MLP_0']['hidden_0']['kernel'].shape,
+          (num_views * cnn_features, 32),
+      )
+
+
+if __name__ == '__main__':
+  jax.config.update('jax_threefry_partitionable', False)
+  absltest.main()

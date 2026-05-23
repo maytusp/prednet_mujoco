@@ -5,11 +5,11 @@
 #SBATCH -n 1                 # One Slurm task
 #SBATCH -c 12                # CPU cores available to the host code.
 
-cd "$(dirname "$0")/.."
+cd ..
 SCRIPT_DIR="$(pwd)"
-echo "Script directory: ${SCRIPT_DIR}"
+echo "Script directory: $SCRIPT_DIR"
 
-source activate jax
+source activate mjcp
 
 export MUJOCO_GL="${MUJOCO_GL:-egl}"
 export JAX_DEFAULT_MATMUL_PRECISION="${JAX_DEFAULT_MATMUL_PRECISION:-highest}"
