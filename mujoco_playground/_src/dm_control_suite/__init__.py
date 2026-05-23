@@ -46,7 +46,15 @@ _envs = {
     "CartpoleSwingupSparse": partial(
         cartpole.Balance, swing_up=True, sparse=True
     ),
+    "CheetahFlip": partial(cheetah.Run, flip=True),
+    "CheetahFlipBackward": partial(
+        cheetah.Run, forward=False, flip=True
+    ),
     "CheetahRun": cheetah.Run,
+    "CheetahRunBackward": partial(cheetah.Run, forward=False),
+    "CheetahRunFast": partial(
+        cheetah.Run, run_speed=cheetah.FAST_RUN_SPEED
+    ),
     "FingerSpin": finger.Spin,
     "FingerTurnEasy": partial(
         finger.Turn, target_radius=finger.EASY_TARGET_SIZE
@@ -79,7 +87,11 @@ _cfgs = {
     "CartpoleBalanceSparse": cartpole.default_config,
     "CartpoleSwingup": cartpole.default_config,
     "CartpoleSwingupSparse": cartpole.default_config,
+    "CheetahFlip": cheetah.default_config,
+    "CheetahFlipBackward": cheetah.default_config,
     "CheetahRun": cheetah.default_config,
+    "CheetahRunBackward": cheetah.default_config,
+    "CheetahRunFast": cheetah.default_config,
     "FingerSpin": finger.default_config,
     "FingerTurnEasy": finger.default_config,
     "FingerTurnHard": finger.default_config,

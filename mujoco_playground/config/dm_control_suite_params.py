@@ -139,11 +139,12 @@ def brax_sac_config(
 
   if (
       env_name.startswith("Acrobot")
+      or env_name.startswith("Cheetah")
       or env_name.startswith("Swimmer")
       or env_name.startswith("Finger")
       or env_name.startswith("Hopper")
       or env_name
-      in ("CheetahRun", "HumanoidWalk", "PendulumSwingUp", "WalkerRun")
+      in ("HumanoidWalk", "PendulumSwingUp", "WalkerRun")
   ):
     rl_config.num_timesteps = 10_000_000
 

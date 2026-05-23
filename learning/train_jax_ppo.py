@@ -54,7 +54,7 @@ xla_flags = os.environ.get("XLA_FLAGS", "")
 xla_flags += " --xla_gpu_triton_gemm_any=True"
 os.environ["XLA_FLAGS"] = xla_flags
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-os.environ["MUJOCO_GL"] = "egl"
+os.environ.setdefault("MUJOCO_GL", "egl")
 
 # Ignore the info logs from brax
 logging.set_verbosity(logging.WARNING)
@@ -92,6 +92,21 @@ _USE_WANDB = flags.DEFINE_boolean(
     "use_wandb",
     False,
     "Use Weights & Biases for logging (ignored in play-only mode)",
+)
+_WANDB_PROJECT = flags.DEFINE_string(
+    "wandb_project", "prednet_rl", "Weights & Biases project name."
+)
+_WANDB_ENTITY = flags.DEFINE_string(
+    "wandb_entity", "maytusp", "Weights & Biases entity name."
+)
+_WANDB_GROUP = flags.DEFINE_string(
+    "wandb_group", None, "Weights & Biases group name."
+)
+_WANDB_MODE = flags.DEFINE_enum(
+    "wandb_mode",
+    "online",
+    ["online", "offline", "disabled"],
+    "Weights & Biases logging mode.",
 )
 _USE_TB = flags.DEFINE_boolean(
     "use_tb", False, "Use TensorBoard for logging (ignored in play-only mode)"
@@ -197,6 +212,10 @@ def get_rl_config(env_name: str) -> config_dict.ConfigDict:
     return dm_control_suite_params.brax_ppo_config(env_name, _IMPL.value)
 
   raise ValueError(f"Env {env_name} not found in {registry.ALL_ENVS}.")
+
+
+def _optional_string(value: str | None) -> str | None:
+  return None if value is None or value == "" else value
 
 
 def rscope_fn(full_states, obs, rew, done):
@@ -322,9 +341,21 @@ def main(argv):
           "wandb is required for --use_wandb. "
           "Install via: pip install wandb"
       )
-    wandb.init(project="mjxrl", name=exp_name)
+    wandb.init(
+        project=_WANDB_PROJECT.value,
+        entity=_optional_string(_WANDB_ENTITY.value),
+        group=_optional_string(_WANDB_GROUP.value),
+        name=exp_name,
+        mode=_WANDB_MODE.value,
+    )
     wandb.config.update(env_cfg.to_dict())
-    wandb.config.update({"env_name": _ENV_NAME.value})
+    wandb.config.update({
+        "env_name": _ENV_NAME.value,
+        "seed": _SEED.value,
+        "num_timesteps": ppo_params.num_timesteps,
+        "num_envs": ppo_params.num_envs,
+        "num_eval_envs": ppo_params.get("num_eval_envs", 128),
+    })
 
   # Initialize TensorBoard if required
   writer = None
@@ -474,6 +505,15 @@ def main(argv):
     print(f"Time to JIT compile: {times[1] - times[0]}")
     print(f"Time to train: {times[-1] - times[1]}")
 
+  if writer is not None:
+    writer.close()
+
+  if _NUM_VIDEOS.value <= 0:
+    print("Skipping inference and video rendering because --num_videos=0.")
+    if _USE_WANDB.value and not _PLAY_ONLY.value:
+      wandb.finish()
+    return
+
   print("Starting inference...")
 
   # Create inference function.
@@ -557,6 +597,9 @@ def main(argv):
     )
     media.write_video(logdir / f"rollout{i}.mp4", frames, fps=fps)
     print(f"Rollout video saved as '{logdir}/rollout{i}.mp4'.")
+
+  if _USE_WANDB.value and not _PLAY_ONLY.value:
+    wandb.finish()
 
 
 def run():

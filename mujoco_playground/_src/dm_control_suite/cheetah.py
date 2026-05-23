@@ -28,7 +28,9 @@ from mujoco_playground._src.dm_control_suite import common
 
 _XML_PATH = mjx_env.ROOT_PATH / "dm_control_suite" / "xmls" / "cheetah.xml"
 # Running speed above which reward is 1.
-_RUN_SPEED = 10
+RUN_SPEED = 10
+FAST_RUN_SPEED = 20
+SPIN_SPEED = 5
 
 
 def default_config() -> config_dict.ConfigDict:
@@ -45,10 +47,13 @@ def default_config() -> config_dict.ConfigDict:
 
 
 class Run(mjx_env.MjxEnv):
-  """Cheetah running environment."""
+  """Cheetah running or flipping environment."""
 
   def __init__(
       self,
+      run_speed: float = RUN_SPEED,
+      forward: bool = True,
+      flip: bool = False,
       config: config_dict.ConfigDict = default_config(),
       config_overrides: Optional[Dict[str, Union[str, int, list[Any]]]] = None,
   ):
@@ -57,6 +62,10 @@ class Run(mjx_env.MjxEnv):
       raise NotImplementedError(
           f"Vision not implemented for {self.__class__.__name__}."
       )
+
+    self._run_speed = run_speed
+    self._forward = 1 if forward else -1
+    self._flip = flip
 
     self._xml_path = _XML_PATH.as_posix()
     self._model_assets = common.get_assets()
@@ -68,6 +77,7 @@ class Run(mjx_env.MjxEnv):
     self._post_init()
 
   def _post_init(self) -> None:
+    self._torso_id = self.mj_model.body("torso").id
     self._lowers = self._mj_model.jnt_range[3:, 0]
     self._uppers = self._mj_model.jnt_range[3:, 1]
 
@@ -97,7 +107,10 @@ class Run(mjx_env.MjxEnv):
     data = mjx_env.step(self.mjx_model, data, jp.zeros(self.mjx_model.nu), 200)
     data = data.replace(time=0.0)
 
-    metrics = {}
+    metrics = {
+        "reward/run": jp.zeros(()),
+        "reward/flip": jp.zeros(()),
+    }
     info = {"rng": rng}
 
     reward, done = jp.zeros(2)  # pylint: disable=redefined-outer-name
@@ -126,17 +139,32 @@ class Run(mjx_env.MjxEnv):
       info: dict[str, Any],
       metrics: dict[str, Any],
   ) -> jax.Array:
-    del action, info, metrics  # Unused.
-    speed = mjx_env.get_sensor_data(self.mj_model, data, "torso_subtreelinvel")[
-        0
-    ]  # x-axis only.
-    return reward.tolerance(
+    del action, info  # Unused.
+
+    if self._flip:
+      spin = self._forward * data.subtree_angmom[self._torso_id, 1]
+      flip_reward = reward.tolerance(
+          spin,
+          bounds=(SPIN_SPEED, float("inf")),
+          margin=SPIN_SPEED,
+          value_at_margin=0,
+          sigmoid="linear",
+      )
+      metrics["reward/flip"] = flip_reward
+      return flip_reward
+
+    speed = self._forward * mjx_env.get_sensor_data(
+        self.mj_model, data, "torso_subtreelinvel"
+    )[0]
+    run_reward = reward.tolerance(
         speed,
-        bounds=(_RUN_SPEED, float("inf")),
-        margin=_RUN_SPEED,
+        bounds=(self._run_speed, float("inf")),
+        margin=self._run_speed,
         value_at_margin=0,
         sigmoid="linear",
     )
+    metrics["reward/run"] = run_reward
+    return run_reward
 
   @property
   def xml_path(self) -> str:

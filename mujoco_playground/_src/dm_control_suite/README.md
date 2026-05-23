@@ -16,7 +16,11 @@ A re-implementation of the [DeepMind Control Suite](https://arxiv.org/abs/1801.0
 | cartpole-balance_sparse   | ✅            |
 | cartpole-swingup          | ✅            |
 | cartpole-swingup_sparse   | ✅            |
+| cheetah-flip              | ✅            |
+| cheetah-flip_backward     | ✅            |
 | cheetah-run               | ✅            |
+| cheetah-run_backward      | ✅            |
+| cheetah-run_fast          | ✅            |
 | finger-spin               | ✅            |
 | finger_turn_easy          | ✅            |
 | finger_turn_hard          | ✅            |
