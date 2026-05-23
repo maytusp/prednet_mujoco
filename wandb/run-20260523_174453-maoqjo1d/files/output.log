@@ -1,0 +1,58 @@
+W0523 17:44:54.862893 22567451440960 xla_bridge.py:878] An NVIDIA GPU may be present on this machine, but a CUDA-enabled jaxlib is not installed. Falling back to cpu.
+
+=== Phase 0: exposure=0 task=0 env=CheetahRun ===
+0: CheetahRun reward=32.972
+Error in sys.excepthook:
+Traceback (most recent call last):
+  File "/mnt/iusers01/fatpou01/compsci01/n70579mp/.conda/envs/mjcp/lib/python3.12/site-packages/wandb/sdk/lib/exit_hooks.py", line 54, in exc_handler
+    traceback.print_exception(exc_type, exc, tb)
+  File "/mnt/iusers01/fatpou01/compsci01/n70579mp/.conda/envs/mjcp/lib/python3.12/traceback.py", line 124, in print_exception
+    te = TracebackException(type(value), value, tb, limit=limit, compact=True)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/iusers01/fatpou01/compsci01/n70579mp/.conda/envs/mjcp/lib/python3.12/traceback.py", line 733, in __init__
+    self.stack = StackSummary._extract_from_extended_frame_gen(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/iusers01/fatpou01/compsci01/n70579mp/.conda/envs/mjcp/lib/python3.12/traceback.py", line 438, in _extract_from_extended_frame_gen
+    f.line
+  File "/mnt/iusers01/fatpou01/compsci01/n70579mp/.conda/envs/mjcp/lib/python3.12/traceback.py", line 323, in line
+    self._line = linecache.getline(self.filename, self.lineno)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/iusers01/fatpou01/compsci01/n70579mp/.conda/envs/mjcp/lib/python3.12/linecache.py", line 30, in getline
+    lines = getlines(filename, module_globals)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/iusers01/fatpou01/compsci01/n70579mp/.conda/envs/mjcp/lib/python3.12/linecache.py", line 46, in getlines
+    return updatecache(filename, module_globals)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/iusers01/fatpou01/compsci01/n70579mp/.conda/envs/mjcp/lib/python3.12/linecache.py", line 96, in updatecache
+    stat = os.stat(fullname)
+           ^^^^^^^^^^^^^^^^^
+KeyboardInterrupt
+
+Original exception was:
+Traceback (most recent call last):
+  File "/net/scratch/n70579mp/prednet_mujoco/learning/train_jax_sac_cont.py", line 416, in <module>
+    run()
+  File "/net/scratch/n70579mp/prednet_mujoco/learning/train_jax_sac_cont.py", line 412, in run
+    app.run(main)
+  File "/mnt/iusers01/fatpou01/compsci01/n70579mp/.conda/envs/mjcp/lib/python3.12/site-packages/absl/app.py", line 367, in run
+    _run_main(main, args)
+  File "/mnt/iusers01/fatpou01/compsci01/n70579mp/.conda/envs/mjcp/lib/python3.12/site-packages/absl/app.py", line 312, in _run_main
+    sys.exit(main(argv))
+             ^^^^^^^^^^
+  File "/net/scratch/n70579mp/prednet_mujoco/learning/train_jax_sac_cont.py", line 380, in main
+    make_policy, restore_params, _ = train_module.train(
+                                     ^^^^^^^^^^^^^^^^^^^
+  File "/net/scratch/n70579mp/prednet_mujoco/learning/custombrax/training/agents/sac_sf_simple/train.py", line 616, in train
+    training_epoch_with_timing(
+  File "/net/scratch/n70579mp/prednet_mujoco/learning/custombrax/training/agents/sac_sf_simple/train.py", line 482, in training_epoch_with_timing
+    jax.tree_util.tree_map(lambda x: x.block_until_ready(), metrics)
+  File "/mnt/iusers01/fatpou01/compsci01/n70579mp/.conda/envs/mjcp/lib/python3.12/site-packages/jax/_src/tree_util.py", line 394, in tree_map
+    return treedef.unflatten(f(*xs) for xs in zip(*all_leaves))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/iusers01/fatpou01/compsci01/n70579mp/.conda/envs/mjcp/lib/python3.12/site-packages/jax/_src/tree_util.py", line 394, in <genexpr>
+    return treedef.unflatten(f(*xs) for xs in zip(*all_leaves))
+                             ^^^^^^
+  File "/net/scratch/n70579mp/prednet_mujoco/learning/custombrax/training/agents/sac_sf_simple/train.py", line 482, in <lambda>
+    jax.tree_util.tree_map(lambda x: x.block_until_ready(), metrics)
+                                     ^^^^^^^^^^^^^^^^^^^^^
+KeyboardInterrupt

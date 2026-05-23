@@ -24,9 +24,9 @@ import warnings
 from absl import app
 from absl import flags
 from absl import logging
-from brax.training.agents.ppo import networks as ppo_networks
-from brax.training.agents.ppo import networks_vision as ppo_networks_vision
-from brax.training.agents.ppo import train as ppo
+from custombrax.training.agents.ppo import networks as ppo_networks
+from custombrax.training.agents.ppo import networks_vision as ppo_networks_vision
+from custombrax.training.agents.ppo import train as ppo
 from etils import epath
 import jax
 import jax.numpy as jp

@@ -24,10 +24,10 @@ import warnings
 from absl import app
 from absl import flags
 from absl import logging
-from brax.training.agents.sac import networks as sac_networks
-from brax.training.agents.sac import train as sac
-from brax.training.agents.sac_sf_simple import networks as sac_sf_networks
-from brax.training.agents.sac_sf_simple import train as sac_sf
+from custombrax.training.agents.sac import networks as sac_networks
+from custombrax.training.agents.sac import train as sac
+from custombrax.training.agents.sac_sf_simple import networks as sac_sf_networks
+from custombrax.training.agents.sac_sf_simple import train as sac_sf
 from etils import epath
 from ml_collections import config_dict
 import mujoco_playground
