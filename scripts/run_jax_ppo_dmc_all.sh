@@ -5,8 +5,6 @@
 #SBATCH -n 1                 # One Slurm task
 #SBATCH -c 12                # CPU cores available to the host code.
 
-set -euo pipefail
-
 cd "$(dirname "$0")/.."
 SCRIPT_DIR="$(pwd)"
 echo "Script directory: ${SCRIPT_DIR}"
