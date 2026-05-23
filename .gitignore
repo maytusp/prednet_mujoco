@@ -7,3 +7,4 @@ mujoco_menagerie
 checkpoints/
 logs
 .mujoco_playground_asset_cache/
+wandb/
