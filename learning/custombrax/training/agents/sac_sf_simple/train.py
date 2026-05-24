@@ -222,7 +222,6 @@ def train(
     restore_params: Optional[Any] = None,
     return_q_params: bool = False,
     sf_dim: int = 0,
-    sf_loss_weight: float = 0.0,
     normalize_sf_features: bool = True,
     sf_task_lr: float = 1e-5,
 ):
@@ -334,7 +333,6 @@ def train(
       discounting=discounting,
       action_size=action_size,
       sf_dim=sf_dim,
-      sf_loss_weight=sf_loss_weight,
       normalize_sf_features=normalize_sf_features,
   )
   alpha_update = gradients.gradient_update_fn(  # pytype: disable=wrong-arg-types  # jax-ndarray

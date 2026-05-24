@@ -35,7 +35,6 @@ def make_losses(
     discounting: float,
     action_size: int,
     sf_dim: int = 0,
-    sf_loss_weight: float = 1.0,
     normalize_sf_features: bool = True,
 ):
   """Creates the SAC losses."""
@@ -73,21 +72,12 @@ def make_losses(
       transitions: Transition,
       key: PRNGKey,
   ) -> tuple[jnp.ndarray, types.Metrics]:
-    if sf_dim:
-      q_old_action, sf_old_action = q_network.apply(
-          normalizer_params,
-          q_params,
-          transitions.observation,
-          transitions.action,
-          return_sf=True,
-      )
-    else:
-      q_old_action = q_network.apply(
-          normalizer_params,
-          q_params,
-          transitions.observation,
-          transitions.action,
-      )
+    q_old_action = q_network.apply(
+        normalizer_params,
+        q_params,
+        transitions.observation,
+        transitions.action,
+    )
     next_dist_params = policy_network.apply(
         normalizer_params, policy_params, transitions.next_observation
     )
@@ -126,32 +116,7 @@ def make_losses(
 
     q_loss = 0.5 * jnp.mean(jnp.square(q_error))
     metrics = {'q_loss': q_loss}
-    total_loss = q_loss
-    if sf_dim and sf_loss_weight:
-      next_q_index = jnp.argmin(next_q, axis=-1)
-      next_sf = jnp.take_along_axis(
-          next_sf, next_q_index[:, None, None], axis=1
-      )
-      next_sf = jnp.squeeze(next_sf, axis=1)
-      basis_features = transitions.next_observation[..., :sf_dim]
-      if normalize_sf_features:
-        basis_features = basis_features / (
-            jnp.linalg.norm(basis_features, axis=-1, keepdims=True) + 1e-8
-        )
-      target_sf = jax.lax.stop_gradient(
-          basis_features
-          + transitions.discount[..., None] * discounting * next_sf
-      )
-      sf_error = sf_old_action - target_sf[:, None, :]
-      sf_error *= (1 - truncation)[:, None, None]
-      sf_loss = 0.5 * jnp.mean(jnp.square(sf_error))
-      weighted_sf_loss = sf_loss_weight * sf_loss
-      total_loss += weighted_sf_loss
-      metrics.update(
-          sf_loss=sf_loss,
-          sf_weighted_loss=weighted_sf_loss,
-      )
-    return total_loss, metrics
+    return q_loss, metrics
 
   def task_loss(
       task_params: Params,

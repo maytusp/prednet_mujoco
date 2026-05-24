@@ -148,9 +148,6 @@ _Q_NETWORK_LAYER_NORM = flags.DEFINE_boolean(
 _SF_DIM = flags.DEFINE_integer(
     "sf_dim", 0, "Successor-feature dimension for --algo=sac_sf"
 )
-_SF_LOSS_WEIGHT = flags.DEFINE_float(
-    "sf_loss_weight", 0.0, "Weight for SAC-SF auxiliary SF loss"
-)
 _NORMALIZE_SF_FEATURES = flags.DEFINE_boolean(
     "normalize_sf_features", True, "L2-normalize SF basis features"
 )
@@ -341,7 +338,6 @@ def main(argv):
       raise ValueError("--sf_dim must be positive when --algo=sac_sf")
     extra_train_kwargs.update(
         sf_dim=_SF_DIM.value,
-        sf_loss_weight=_SF_LOSS_WEIGHT.value,
         normalize_sf_features=_NORMALIZE_SF_FEATURES.value,
         sf_task_lr=_SF_TASK_LR.value,
     )

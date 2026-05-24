@@ -35,7 +35,6 @@ WANDB_GROUP="${WANDB_GROUP:-jax_${ALGO}_cont_dmc}"
 WANDB_MODE="${WANDB_MODE:-online}"
 LOGDIR="${LOGDIR:-logs/jax_${ALGO}_cont_dmc}"
 SF_DIM="${SF_DIM:-16}"
-SF_LOSS_WEIGHT="${SF_LOSS_WEIGHT:-0.0}"
 NORMALIZE_SF_FEATURES="${NORMALIZE_SF_FEATURES:-true}"
 SF_TASK_LR="${SF_TASK_LR:-1e-5}"
 
@@ -68,7 +67,6 @@ for seed in ${SEEDS}; do
   if [[ "${ALGO}" == "sac_sf" ]]; then
     cmd+=(
       --sf_dim="${SF_DIM}"
-      --sf_loss_weight="${SF_LOSS_WEIGHT}"
       --normalize_sf_features="${NORMALIZE_SF_FEATURES}"
       --sf_task_lr="${SF_TASK_LR}"
     )
