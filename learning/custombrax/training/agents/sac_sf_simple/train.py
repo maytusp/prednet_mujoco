@@ -64,6 +64,8 @@ class TrainingState:
   env_steps: types.UInt64
   alpha_optimizer_state: optax.OptState
   alpha_params: Params
+  task_optimizer_state: optax.OptState
+  task_params: Params
   normalizer_params: running_statistics.RunningStatisticsState
 
 
@@ -74,17 +76,86 @@ def _unpmap(v):
   )
 
 
+def _replicate_tree(v, local_devices_to_use: int):
+  devices = jax.local_devices()[:local_devices_to_use]
+  mesh = jax.sharding.Mesh(np.array(devices), ('_device_put_sharded',))
+  sharding = jax.NamedSharding(mesh, jax.P('_device_put_sharded'))
+
+  def _replicate(x):
+    if isinstance(x, jax.Array):
+      return jax.device_put(jnp.stack([x] * len(devices)), sharding)
+    return jax.device_put(np.stack([x] * len(devices)), sharding)
+
+  return jax.tree_util.tree_map(_replicate, v)
+
+
+def _normalize_task(task_params: jnp.ndarray) -> jnp.ndarray:
+  return task_params / (jnp.linalg.norm(task_params) + 1e-8)
+
+
+def _append_task(obs: jnp.ndarray, task_params: jnp.ndarray) -> jnp.ndarray:
+  if not task_params.shape[-1]:
+    return obs
+  task = _normalize_task(task_params)
+  task = jnp.broadcast_to(task, obs.shape[:-1] + task.shape)
+  return jnp.concatenate([obs, task], axis=-1)
+
+
+def _augment_transition(
+    transitions: Transition, task_params: jnp.ndarray
+) -> Transition:
+  return transitions._replace(
+      observation=_append_task(transitions.observation, task_params),
+      next_observation=_append_task(
+          transitions.next_observation, task_params
+      ),
+  )
+
+
+def _make_policy_params(
+    normalizer_params: running_statistics.RunningStatisticsState,
+    policy_params: Params,
+    task_params: Params,
+    sf_dim: int,
+):
+  if sf_dim:
+    return normalizer_params, policy_params, task_params
+  return normalizer_params, policy_params
+
+
+def _make_preprocess_observations_fn(
+    normalize_observations: bool, sf_dim: int
+):
+  if not normalize_observations:
+    return lambda x, y: x
+  if not sf_dim:
+    return running_statistics.normalize
+
+  def normalize_state_only(
+      observation: jnp.ndarray,
+      normalizer_params: running_statistics.RunningStatisticsState,
+  ) -> jnp.ndarray:
+    state_obs = observation[..., :-sf_dim]
+    task = observation[..., -sf_dim:]
+    state_obs = running_statistics.normalize(state_obs, normalizer_params)
+    return jnp.concatenate([state_obs, task], axis=-1)
+
+  return normalize_state_only
+
+
 def _init_training_state(
     key: PRNGKey,
     obs_size: int,
+    sf_dim: int,
     local_devices_to_use: int,
     sac_network: sac_networks.SACNetworks,
     alpha_optimizer: optax.GradientTransformation,
     policy_optimizer: optax.GradientTransformation,
     q_optimizer: optax.GradientTransformation,
+    task_optimizer: optax.GradientTransformation,
 ) -> TrainingState:
   """Inits the training state and replicates it over devices."""
-  key_policy, key_q = jax.random.split(key)
+  key_policy, key_q, key_task = jax.random.split(key, 3)
   log_alpha = jnp.asarray(0.0, dtype=jnp.float32)
   alpha_optimizer_state = alpha_optimizer.init(log_alpha)
 
@@ -92,6 +163,8 @@ def _init_training_state(
   policy_optimizer_state = policy_optimizer.init(policy_params)
   q_params = sac_network.q_network.init(key_q)
   q_optimizer_state = q_optimizer.init(q_params)
+  task_params = jax.random.normal(key_task, (sf_dim,), dtype=jnp.float32)
+  task_optimizer_state = task_optimizer.init(task_params)
 
   normalizer_params = running_statistics.init_state(
       specs.Array((obs_size,), jnp.dtype('float32'))
@@ -107,18 +180,11 @@ def _init_training_state(
       env_steps=types.UInt64(hi=0, lo=0),
       alpha_optimizer_state=alpha_optimizer_state,
       alpha_params=log_alpha,
+      task_optimizer_state=task_optimizer_state,
+      task_params=task_params,
       normalizer_params=normalizer_params,
   )
-  devices = jax.local_devices()[:local_devices_to_use]
-  mesh = jax.sharding.Mesh(np.array(devices), ('_device_put_sharded',))
-  sharding = jax.NamedSharding(mesh, jax.P('_device_put_sharded'))
-
-  def _replicate(x):
-    if isinstance(x, jax.Array):
-      return jax.device_put(jnp.stack([x] * len(devices)), sharding)
-    return jax.device_put(np.stack([x] * len(devices)), sharding)
-
-  return jax.tree_util.tree_map(_replicate, training_state)
+  return _replicate_tree(training_state, local_devices_to_use)
 
 
 def train(
@@ -156,8 +222,9 @@ def train(
     restore_params: Optional[Any] = None,
     return_q_params: bool = False,
     sf_dim: int = 0,
-    sf_loss_weight: float = 1.0,
+    sf_loss_weight: float = 0.0,
     normalize_sf_features: bool = True,
+    sf_task_lr: float = 1e-5,
 ):
   """SAC training."""
   process_id = jax.process_index()
@@ -227,11 +294,12 @@ def train(
     raise NotImplementedError('Dictionary observations not implemented in SAC')
   action_size = env.action_size
 
-  normalize_fn = lambda x, y: x
-  if normalize_observations:
-    normalize_fn = running_statistics.normalize
+  policy_obs_size = obs_size + sf_dim if sf_dim else obs_size
+  normalize_fn = _make_preprocess_observations_fn(
+      normalize_observations, sf_dim
+  )
   sac_network = network_factory(
-      observation_size=obs_size,
+      observation_size=policy_obs_size,
       action_size=action_size,
       preprocess_observations_fn=normalize_fn,
       sf_dim=sf_dim,
@@ -242,6 +310,7 @@ def train(
 
   policy_optimizer = optax.adam(learning_rate=learning_rate)
   q_optimizer = optax.adam(learning_rate=learning_rate)
+  task_optimizer = optax.adam(learning_rate=sf_task_lr)
 
   dummy_obs = jnp.zeros((obs_size,))
   dummy_action = jnp.zeros((action_size,))
@@ -259,7 +328,7 @@ def train(
       sample_batch_size=batch_size * grad_updates_per_step // device_count,
   )
 
-  alpha_loss, critic_loss, actor_loss = sac_losses.make_losses(
+  alpha_loss, critic_loss, task_loss, actor_loss = sac_losses.make_losses(
       sac_network=sac_network,
       reward_scaling=reward_scaling,
       discounting=discounting,
@@ -272,7 +341,10 @@ def train(
       alpha_loss, alpha_optimizer, pmap_axis_name=_PMAP_AXIS_NAME
   )
   critic_update = gradients.gradient_update_fn(  # pytype: disable=wrong-arg-types  # jax-ndarray
-      critic_loss, q_optimizer, pmap_axis_name=_PMAP_AXIS_NAME
+      critic_loss, q_optimizer, pmap_axis_name=_PMAP_AXIS_NAME, has_aux=True
+  )
+  task_update = gradients.gradient_update_fn(  # pytype: disable=wrong-arg-types  # jax-ndarray
+      task_loss, task_optimizer, pmap_axis_name=_PMAP_AXIS_NAME, has_aux=True
   )
   actor_update = gradients.gradient_update_fn(  # pytype: disable=wrong-arg-types  # jax-ndarray
       actor_loss, policy_optimizer, pmap_axis_name=_PMAP_AXIS_NAME
@@ -283,24 +355,46 @@ def train(
   ) -> Tuple[Tuple[TrainingState, PRNGKey], Metrics]:
     training_state, key = carry
 
-    key, key_alpha, key_critic, key_actor = jax.random.split(key, 4)
+    key, key_alpha, key_task, key_critic, key_actor = jax.random.split(key, 5)
+    learning_transitions = (
+        _augment_transition(transitions, training_state.task_params)
+        if sf_dim
+        else transitions
+    )
 
     alpha_loss, alpha_params, alpha_optimizer_state = alpha_update(
         training_state.alpha_params,
         training_state.policy_params,
         training_state.normalizer_params,
-        transitions,
+        learning_transitions,
         key_alpha,
         optimizer_state=training_state.alpha_optimizer_state,
     )
+    task_params = training_state.task_params
+    task_optimizer_state = training_state.task_optimizer_state
+    task_metrics = {}
+    if sf_dim:
+      (
+          (_, task_metrics),
+          task_params,
+          task_optimizer_state,
+      ) = task_update(
+          training_state.task_params,
+          training_state.q_params,
+          training_state.policy_params,
+          training_state.normalizer_params,
+          learning_transitions,
+          key_task,
+          optimizer_state=training_state.task_optimizer_state,
+      )
     alpha = jnp.exp(training_state.alpha_params)
-    critic_loss, q_params, q_optimizer_state = critic_update(
+    (critic_loss, critic_metrics), q_params, q_optimizer_state = critic_update(
         training_state.q_params,
         training_state.policy_params,
         training_state.normalizer_params,
         training_state.target_q_params,
         alpha,
-        transitions,
+        learning_transitions,
         key_critic,
         optimizer_state=training_state.q_optimizer_state,
     )
@@ -309,7 +403,7 @@ def train(
         training_state.normalizer_params,
         training_state.q_params,
         alpha,
-        transitions,
+        learning_transitions,
         key_actor,
         optimizer_state=training_state.policy_optimizer_state,
     )
@@ -326,6 +420,15 @@ def train(
         'alpha_loss': alpha_loss,
         'alpha': jnp.exp(alpha_params),
     }
+    if sf_dim:
+      metrics.update(
+          {
+              f'sf/{name}': value for name, value in critic_metrics.items()
+          }
+      )
+      metrics.update(
+          {f'sf/{name}': value for name, value in task_metrics.items()}
+      )
 
     new_training_state = TrainingState(
         policy_optimizer_state=policy_optimizer_state,
@@ -337,6 +440,8 @@ def train(
         env_steps=training_state.env_steps,
         alpha_optimizer_state=alpha_optimizer_state,
         alpha_params=alpha_params,
+        task_optimizer_state=task_optimizer_state,
+        task_params=task_params,
         normalizer_params=training_state.normalizer_params,
     )
     return (new_training_state, key), metrics
@@ -344,6 +449,7 @@ def train(
   def get_experience(
       normalizer_params: running_statistics.RunningStatisticsState,
       policy_params: Params,
+      task_params: Params,
       env_state: envs.State,
       buffer_state: ReplayBufferState,
       key: PRNGKey,
@@ -352,7 +458,11 @@ def train(
       envs.State,
       ReplayBufferState,
   ]:
-    policy = make_policy((normalizer_params, policy_params))
+    policy = make_policy(
+        _make_policy_params(
+            normalizer_params, policy_params, task_params, sf_dim
+        )
+    )
     env_state, transitions = acting.actor_step(
         env, env_state, policy, key, extra_fields=('truncation',)
     )
@@ -381,6 +491,7 @@ def train(
     normalizer_params, env_state, buffer_state = get_experience(
         training_state.normalizer_params,
         training_state.policy_params,
+        training_state.task_params,
         env_state,
         buffer_state,
         experience_key,
@@ -418,6 +529,7 @@ def train(
       new_normalizer_params, env_state, buffer_state = get_experience(
           training_state.normalizer_params,
           training_state.policy_params,
+          training_state.task_params,
           env_state,
           buffer_state,
           key,
@@ -500,46 +612,74 @@ def train(
   training_state = _init_training_state(
       key=global_key,
       obs_size=obs_size,
+      sf_dim=sf_dim,
       local_devices_to_use=local_devices_to_use,
       sac_network=sac_network,
       alpha_optimizer=alpha_optimizer,
       policy_optimizer=policy_optimizer,
       q_optimizer=q_optimizer,
+      task_optimizer=task_optimizer,
   )
   del global_key
 
   if restore_checkpoint_path is not None:
     params = checkpoint.load(restore_checkpoint_path)
-    training_state = training_state.replace(
-        normalizer_params=params[0],
-        policy_params=params[1],
-        q_params=params[2] if len(params) > 2 else training_state.q_params,
-        target_q_params=(
-            params[3]
-            if len(params) > 3
-            else params[2] if len(params) > 2 else training_state.target_q_params
-        ),
-    )
+    params = _replicate_tree(params, local_devices_to_use)
+    if sf_dim and len(params) == 3:
+      training_state = training_state.replace(
+          normalizer_params=params[0],
+          policy_params=params[1],
+          task_params=params[2],
+      )
+    else:
+      training_state = training_state.replace(
+          normalizer_params=params[0],
+          policy_params=params[1],
+          q_params=params[2] if len(params) > 2 else training_state.q_params,
+          target_q_params=(
+              params[3]
+              if len(params) > 3
+              else (
+                  params[2]
+                  if len(params) > 2
+                  else training_state.target_q_params
+              )
+          ),
+          task_params=params[4] if len(params) > 4 else training_state.task_params,
+      )
 
   if restore_params is not None:
-    training_state = training_state.replace(
-        normalizer_params=restore_params[0],
-        policy_params=restore_params[1],
-        q_params=(
-            restore_params[2]
-            if len(restore_params) > 2
-            else training_state.q_params
-        ),
-        target_q_params=(
-            restore_params[3]
-            if len(restore_params) > 3
-            else (
-                restore_params[2]
-                if len(restore_params) > 2
-                else training_state.target_q_params
-            )
-        ),
-    )
+    restore_params = _replicate_tree(restore_params, local_devices_to_use)
+    if sf_dim and len(restore_params) == 3:
+      training_state = training_state.replace(
+          normalizer_params=restore_params[0],
+          policy_params=restore_params[1],
+          task_params=restore_params[2],
+      )
+    else:
+      training_state = training_state.replace(
+          normalizer_params=restore_params[0],
+          policy_params=restore_params[1],
+          q_params=(
+              restore_params[2]
+              if len(restore_params) > 2
+              else training_state.q_params
+          ),
+          target_q_params=(
+              restore_params[3]
+              if len(restore_params) > 3
+              else (
+                  restore_params[2]
+                  if len(restore_params) > 2
+                  else training_state.target_q_params
+              )
+          ),
+          task_params=(
+              restore_params[4]
+              if len(restore_params) > 4
+              else training_state.task_params
+          ),
+      )
 
   local_key, rb_key, env_key, eval_key = jax.random.split(local_key, 4)
 
@@ -583,7 +723,12 @@ def train(
   if process_id == 0 and num_evals > 1:
     metrics = evaluator.run_evaluation(
         _unpmap(
-            (training_state.normalizer_params, training_state.policy_params)
+            _make_policy_params(
+                training_state.normalizer_params,
+                training_state.policy_params,
+                training_state.task_params,
+                sf_dim,
+            )
         ),
         training_metrics={},
     )
@@ -623,10 +768,15 @@ def train(
     if process_id == 0:
       if checkpoint_logdir:
         params = _unpmap(
-            (training_state.normalizer_params, training_state.policy_params)
+            _make_policy_params(
+                training_state.normalizer_params,
+                training_state.policy_params,
+                training_state.task_params,
+                sf_dim,
+            )
         )
         ckpt_config = checkpoint.network_config(
-            observation_size=obs_size,
+            observation_size=policy_obs_size,
             action_size=env.action_size,
             normalize_observations=normalize_observations,
             network_factory=functools.partial(network_factory, sf_dim=sf_dim),
@@ -636,7 +786,12 @@ def train(
       # Run evals.
       metrics = evaluator.run_evaluation(
           _unpmap(
-              (training_state.normalizer_params, training_state.policy_params)
+              _make_policy_params(
+                  training_state.normalizer_params,
+                  training_state.policy_params,
+                  training_state.task_params,
+                  sf_dim,
+              )
           ),
           training_metrics,
       )
@@ -652,13 +807,23 @@ def train(
 
   params = _unpmap(
       (
-          training_state.normalizer_params,
-          training_state.policy_params,
-          training_state.q_params,
-          training_state.target_q_params,
+          (
+              training_state.normalizer_params,
+              training_state.policy_params,
+              training_state.q_params,
+              training_state.target_q_params,
+              training_state.task_params,
+          )
+          if sf_dim
+          else (
+              training_state.normalizer_params,
+              training_state.policy_params,
+              training_state.q_params,
+              training_state.target_q_params,
+          )
       )
   )
-  policy_params = params[:2]
+  policy_params = (params[0], params[1], params[4]) if sf_dim else params[:2]
 
   # If there was no mistakes the training_state should still be identical on all
   # devices.

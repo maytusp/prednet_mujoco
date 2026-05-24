@@ -72,7 +72,7 @@ def make_losses(
       alpha: jnp.ndarray,
       transitions: Transition,
       key: PRNGKey,
-  ) -> jnp.ndarray:
+  ) -> tuple[jnp.ndarray, types.Metrics]:
     if sf_dim:
       q_old_action, sf_old_action = q_network.apply(
           normalizer_params,
@@ -125,7 +125,9 @@ def make_losses(
     q_error *= jnp.expand_dims(1 - truncation, -1)
 
     q_loss = 0.5 * jnp.mean(jnp.square(q_error))
-    if sf_dim:
+    metrics = {'q_loss': q_loss}
+    total_loss = q_loss
+    if sf_dim and sf_loss_weight:
       next_q_index = jnp.argmin(next_q, axis=-1)
       next_sf = jnp.take_along_axis(
           next_sf, next_q_index[:, None, None], axis=1
@@ -142,8 +144,54 @@ def make_losses(
       )
       sf_error = sf_old_action - target_sf[:, None, :]
       sf_error *= (1 - truncation)[:, None, None]
-      q_loss += sf_loss_weight * 0.5 * jnp.mean(jnp.square(sf_error))
-    return q_loss
+      sf_loss = 0.5 * jnp.mean(jnp.square(sf_error))
+      weighted_sf_loss = sf_loss_weight * sf_loss
+      total_loss += weighted_sf_loss
+      metrics.update(
+          sf_loss=sf_loss,
+          sf_weighted_loss=weighted_sf_loss,
+      )
+    return total_loss, metrics
+
+  def task_loss(
+      task_params: Params,
+      q_params: Params,
+      policy_params: Params,
+      normalizer_params: Any,
+      transitions: Transition,
+      key: PRNGKey,
+  ) -> tuple[jnp.ndarray, types.Metrics]:
+    next_dist_params = policy_network.apply(
+        normalizer_params, policy_params, transitions.next_observation
+    )
+    next_action = parametric_action_distribution.sample_no_postprocessing(
+        next_dist_params, key
+    )
+    next_action = parametric_action_distribution.postprocess(next_action)
+    _, next_sf = q_network.apply(
+        normalizer_params,
+        q_params,
+        transitions.next_observation,
+        next_action,
+        return_sf=True,
+    )
+    basis_features = jnp.mean(next_sf, axis=1)
+    if normalize_sf_features:
+      basis_features = basis_features / (
+          jnp.linalg.norm(basis_features, axis=-1, keepdims=True) + 1e-8
+      )
+    predicted_reward = jnp.sum(
+        jax.lax.stop_gradient(basis_features) * task_params, axis=-1
+    )
+    reward_target = transitions.reward * reward_scaling
+    reward_prediction_loss = jnp.mean(
+        jnp.square(predicted_reward - reward_target)
+    )
+    return reward_prediction_loss, {
+        'reward_prediction_loss': reward_prediction_loss,
+        'predicted_reward': jnp.mean(predicted_reward),
+        'task_norm': jnp.linalg.norm(task_params),
+    }
 
   def actor_loss(
       policy_params: Params,
@@ -168,4 +216,4 @@ def make_losses(
     actor_loss = alpha * log_prob - min_q
     return jnp.mean(actor_loss)
 
-  return alpha_loss, critic_loss, actor_loss
+  return alpha_loss, critic_loss, task_loss, actor_loss

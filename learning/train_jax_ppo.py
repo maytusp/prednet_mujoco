@@ -218,6 +218,24 @@ def _optional_string(value: str | None) -> str | None:
   return None if value is None or value == "" else value
 
 
+def _scalarize(value):
+  if hasattr(value, "item"):
+    try:
+      return value.item()
+    except (TypeError, ValueError):
+      pass
+  if hasattr(value, "tolist"):
+    try:
+      return value.tolist()
+    except (TypeError, ValueError):
+      pass
+  return value
+
+
+def _scalarize_metrics(metrics):
+  return {key: _scalarize(value) for key, value in metrics.items()}
+
+
 def rscope_fn(full_states, obs, rew, done):
   """
   All arrays are of shape (unroll_length, rscope_envs, ...)
@@ -432,6 +450,7 @@ def main(argv):
   # Progress function for logging
   def progress(num_steps, metrics):
     times.append(time.monotonic())
+    metrics = _scalarize_metrics(metrics)
 
     # Log to Weights & Biases
     if _USE_WANDB.value and not _PLAY_ONLY.value:

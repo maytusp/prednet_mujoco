@@ -144,10 +144,13 @@ _SF_DIM = flags.DEFINE_integer(
     "sf_dim", 0, "Successor-feature dimension for --algo=sac_sf"
 )
 _SF_LOSS_WEIGHT = flags.DEFINE_float(
-    "sf_loss_weight", 1.0, "Weight for SAC-SF auxiliary SF loss"
+    "sf_loss_weight", 0.0, "Weight for SAC-SF auxiliary SF loss"
 )
 _NORMALIZE_SF_FEATURES = flags.DEFINE_boolean(
     "normalize_sf_features", True, "L2-normalize SF basis features"
+)
+_SF_TASK_LR = flags.DEFINE_float(
+    "sf_task_lr", 1e-5, "Learning rate for SAC-SF reward task vector"
 )
 _LOGDIR = flags.DEFINE_string("logdir", None, "Directory for logging.")
 _WARP_KERNEL_CACHE_DIR = flags.DEFINE_string(
@@ -351,6 +354,7 @@ def main(argv):
             sf_dim=_SF_DIM.value,
             sf_loss_weight=_SF_LOSS_WEIGHT.value,
             normalize_sf_features=_NORMALIZE_SF_FEATURES.value,
+            sf_task_lr=_SF_TASK_LR.value,
         )
 
       def progress(num_steps, metrics, env_name=env_name):

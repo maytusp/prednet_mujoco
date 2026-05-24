@@ -18,8 +18,10 @@ from typing import Any, Union
 
 from custombrax.training import checkpoint
 from custombrax.training import types
+from custombrax.training.acme import running_statistics
 from custombrax.training.agents.sac_sf_simple import networks as sac_networks
 from etils import epath
+import jax.numpy as jnp
 from ml_collections import config_dict
 
 _CONFIG_FNAME = 'sac_network_config.json'
@@ -59,7 +61,27 @@ def _get_network(
     network_factory: types.NetworkFactory[sac_networks.SACNetworks],
 ) -> sac_networks.SACNetworks:
   """Generates a SAC network given config."""
-  return checkpoint.get_network(config, network_factory)  # pytype: disable=bad-return-type
+  normalize = lambda x, y: x
+  kwargs = config.network_factory_kwargs
+  sf_dim = kwargs.get('sf_dim', 0)
+  if config.normalize_observations:
+    if sf_dim:
+
+      def normalize_state_only(observation, normalizer_params):
+        state_obs = observation[..., :-sf_dim]
+        task = observation[..., -sf_dim:]
+        state_obs = running_statistics.normalize(state_obs, normalizer_params)
+        return jnp.concatenate([state_obs, task], axis=-1)
+
+      normalize = normalize_state_only
+    else:
+      normalize = running_statistics.normalize
+  return network_factory(
+      config.to_dict()['observation_size'],
+      config.action_size,
+      preprocess_observations_fn=normalize,
+      **kwargs,
+  )
 
 
 def load_config(

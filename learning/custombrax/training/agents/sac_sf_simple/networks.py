@@ -36,6 +36,13 @@ class SACNetworks:
 def make_inference_fn(sac_networks: SACNetworks):
   """Creates params and inference function for the SAC agent."""
 
+  def _append_task(observations: types.Observation, task_params: jnp.ndarray):
+    if not task_params.shape[-1]:
+      return observations
+    task = task_params / (jnp.linalg.norm(task_params) + 1e-8)
+    task = jnp.broadcast_to(task, observations.shape[:-1] + task.shape)
+    return jnp.concatenate([observations, task], axis=-1)
+
   def make_policy(
       params: types.PolicyParams, deterministic: bool = False
   ) -> types.Policy:
@@ -43,7 +50,18 @@ def make_inference_fn(sac_networks: SACNetworks):
     def policy(
         observations: types.Observation, key_sample: PRNGKey
     ) -> Tuple[types.Action, types.Extra]:
-      logits = sac_networks.policy_network.apply(*params, observations)
+      if len(params) == 3:
+        normalizer_params, policy_params, task_params = params
+        if (
+            task_params.shape[-1]
+            and observations.shape[-1] == normalizer_params.mean.shape[-1]
+        ):
+          observations = _append_task(observations, task_params)
+        logits = sac_networks.policy_network.apply(
+            normalizer_params, policy_params, observations
+        )
+      else:
+        logits = sac_networks.policy_network.apply(*params, observations)
       if deterministic:
         return sac_networks.parametric_action_distribution.mode(logits), {}
       return (

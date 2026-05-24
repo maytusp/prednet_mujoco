@@ -74,6 +74,19 @@ def _unpmap(v):
   )
 
 
+def _replicate_tree(v, local_devices_to_use: int):
+  devices = jax.local_devices()[:local_devices_to_use]
+  mesh = jax.sharding.Mesh(np.array(devices), ('_device_put_sharded',))
+  sharding = jax.NamedSharding(mesh, jax.P('_device_put_sharded'))
+
+  def _replicate(x):
+    if isinstance(x, jax.Array):
+      return jax.device_put(jnp.stack([x] * len(devices)), sharding)
+    return jax.device_put(np.stack([x] * len(devices)), sharding)
+
+  return jax.tree_util.tree_map(_replicate, v)
+
+
 def _init_training_state(
     key: PRNGKey,
     obs_size: int,
@@ -109,16 +122,7 @@ def _init_training_state(
       alpha_params=log_alpha,
       normalizer_params=normalizer_params,
   )
-  devices = jax.local_devices()[:local_devices_to_use]
-  mesh = jax.sharding.Mesh(np.array(devices), ('_device_put_sharded',))
-  sharding = jax.NamedSharding(mesh, jax.P('_device_put_sharded'))
-
-  def _replicate(x):
-    if isinstance(x, jax.Array):
-      return jax.device_put(jnp.stack([x] * len(devices)), sharding)
-    return jax.device_put(np.stack([x] * len(devices)), sharding)
-
-  return jax.tree_util.tree_map(_replicate, training_state)
+  return _replicate_tree(training_state, local_devices_to_use)
 
 
 def train(
@@ -503,6 +507,7 @@ def train(
 
   if restore_checkpoint_path is not None:
     params = checkpoint.load(restore_checkpoint_path)
+    params = _replicate_tree(params, local_devices_to_use)
     training_state = training_state.replace(
         normalizer_params=params[0],
         policy_params=params[1],
@@ -515,6 +520,7 @@ def train(
     )
 
   if restore_params is not None:
+    restore_params = _replicate_tree(restore_params, local_devices_to_use)
     training_state = training_state.replace(
         normalizer_params=restore_params[0],
         policy_params=restore_params[1],
