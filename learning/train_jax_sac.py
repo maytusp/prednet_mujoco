@@ -27,6 +27,9 @@ from absl import logging
 from custombrax.training.agents.sac import checkpoint as sac_checkpoint
 from custombrax.training.agents.sac import networks as sac_networks
 from custombrax.training.agents.sac import train as sac
+from custombrax.training.agents.sac_prednet import checkpoint as sac_prednet_checkpoint
+from custombrax.training.agents.sac_prednet import networks as sac_prednet_networks
+from custombrax.training.agents.sac_prednet import train as sac_prednet
 from custombrax.training.agents.sac_sf_simple import checkpoint as sac_sf_checkpoint
 from custombrax.training.agents.sac_sf_simple import networks as sac_sf_networks
 from custombrax.training.agents.sac_sf_simple import train as sac_sf
@@ -70,7 +73,9 @@ _ENV_NAME = flags.DEFINE_string(
     f"Name of the environment. One of {', '.join(registry.ALL_ENVS)}",
 )
 _IMPL = flags.DEFINE_enum("impl", "jax", ["jax", "warp"], "MJX implementation")
-_ALGO = flags.DEFINE_enum("algo", "sac", ["sac", "sac_sf"], "Learner.")
+_ALGO = flags.DEFINE_enum(
+    "algo", "sac", ["sac", "sac_sf", "sac_prednet"], "Learner."
+)
 _PLAYGROUND_CONFIG_OVERRIDES = flags.DEFINE_string(
     "playground_config_overrides",
     None,
@@ -154,6 +159,25 @@ _NORMALIZE_SF_FEATURES = flags.DEFINE_boolean(
 _SF_TASK_LR = flags.DEFINE_float(
     "sf_task_lr", 1e-5, "Learning rate for SAC-SF reward task vector"
 )
+_PREDNET_GAMMAS = flags.DEFINE_list(
+    "prednet_gammas",
+    ["0.1", "0.5", "0.95"],
+    "Comma-separated predictive coding discount factors.",
+)
+_PREDNET_LOSS_WEIGHT = flags.DEFINE_float(
+    "prednet_loss_weight", 0.1, "Weight for SAC-PredNet auxiliary loss."
+)
+_PREDNET_SELF_WEIGHT = flags.DEFINE_float(
+    "prednet_self_weight", 1.0, "Weight for self-prediction loss."
+)
+_PREDNET_TOPDOWN_WEIGHT = flags.DEFINE_float(
+    "prednet_topdown_weight", 1.0, "Weight for top-down prediction loss."
+)
+_PREDNET_USE_TASK_VECTOR = flags.DEFINE_boolean(
+    "prednet_use_task_vector",
+    False,
+    "Append and learn a SAC-SF-style task vector for SAC-PredNet.",
+)
 _LOGDIR = flags.DEFINE_string("logdir", None, "Directory for logging.")
 _WARP_KERNEL_CACHE_DIR = flags.DEFINE_string(
     "warp_kernel_cache_dir", None, "Directory for caching compiled Warp kernels."
@@ -189,6 +213,10 @@ def _optional_string(value: str | None) -> str | None:
   return None if value is None or value == "" else value
 
 
+def _prednet_gammas() -> tuple[float, ...]:
+  return tuple(float(value) for value in _PREDNET_GAMMAS.value)
+
+
 def _resolve_checkpoint(path: str | None):
   if path is None:
     print("No checkpoint path provided, not restoring from checkpoint")
@@ -210,6 +238,13 @@ def main(argv):
   if _WARP_KERNEL_CACHE_DIR.value is not None:
     import warp as wp  # pylint: disable=g-import-not-at-top
     wp.config.kernel_cache_dir = _WARP_KERNEL_CACHE_DIR.value
+
+  prednet_task_dim = _SF_DIM.value if _PREDNET_USE_TASK_VECTOR.value else 0
+  if _ALGO.value == "sac_prednet" and _PREDNET_USE_TASK_VECTOR.value:
+    if _SF_DIM.value <= 0:
+      raise ValueError(
+          "--sf_dim must be positive when --prednet_use_task_vector=true"
+      )
 
   env_cfg = registry.get_default_config(_ENV_NAME.value)
   sac_params = get_rl_config(_ENV_NAME.value)
@@ -299,6 +334,11 @@ def main(argv):
         "num_envs": sac_params.num_envs,
         "num_eval_envs": sac_params.get("num_eval_envs", 128),
         "sf_dim": _SF_DIM.value,
+        "prednet_gammas": _prednet_gammas(),
+        "prednet_loss_weight": _PREDNET_LOSS_WEIGHT.value,
+        "prednet_self_weight": _PREDNET_SELF_WEIGHT.value,
+        "prednet_topdown_weight": _PREDNET_TOPDOWN_WEIGHT.value,
+        "prednet_use_task_vector": _PREDNET_USE_TASK_VECTOR.value,
     })
 
   writer = None
@@ -323,11 +363,21 @@ def main(argv):
         _ENV_NAME.value
     )
 
-  network_module = sac_sf_networks if _ALGO.value == "sac_sf" else sac_networks
-  train_module = sac_sf if _ALGO.value == "sac_sf" else sac
-  checkpoint_module = (
-      sac_sf_checkpoint if _ALGO.value == "sac_sf" else sac_checkpoint
-  )
+  network_module = {
+      "sac": sac_networks,
+      "sac_sf": sac_sf_networks,
+      "sac_prednet": sac_prednet_networks,
+  }[_ALGO.value]
+  train_module = {
+      "sac": sac,
+      "sac_sf": sac_sf,
+      "sac_prednet": sac_prednet,
+  }[_ALGO.value]
+  checkpoint_module = {
+      "sac": sac_checkpoint,
+      "sac_sf": sac_sf_checkpoint,
+      "sac_prednet": sac_prednet_checkpoint,
+  }[_ALGO.value]
   network_factory = functools.partial(
       network_module.make_sac_networks, **sac_params.network_factory
   )
@@ -338,6 +388,17 @@ def main(argv):
       raise ValueError("--sf_dim must be positive when --algo=sac_sf")
     extra_train_kwargs.update(
         sf_dim=_SF_DIM.value,
+        normalize_sf_features=_NORMALIZE_SF_FEATURES.value,
+        sf_task_lr=_SF_TASK_LR.value,
+    )
+  elif _ALGO.value == "sac_prednet":
+    extra_train_kwargs.update(
+        prednet_gammas=_prednet_gammas(),
+        prednet_loss_weight=_PREDNET_LOSS_WEIGHT.value,
+        prednet_self_weight=_PREDNET_SELF_WEIGHT.value,
+        prednet_topdown_weight=_PREDNET_TOPDOWN_WEIGHT.value,
+        prednet_use_task_vector=_PREDNET_USE_TASK_VECTOR.value,
+        sf_dim=prednet_task_dim,
         normalize_sf_features=_NORMALIZE_SF_FEATURES.value,
         sf_task_lr=_SF_TASK_LR.value,
     )

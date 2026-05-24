@@ -14,7 +14,7 @@ source activate mjcp
 export MUJOCO_GL="${MUJOCO_GL:-egl}"
 export JAX_DEFAULT_MATMUL_PRECISION="${JAX_DEFAULT_MATMUL_PRECISION:-highest}"
 
-ALGO="${ALGO:-sac_sf}"
+ALGO="${ALGO:-sac_prednet}"
 TASK_SEQUENCE="${TASK_SEQUENCE:-CheetahRun,CheetahRunBackward,CheetahRunFast,CheetahFlip}"
 SEEDS="${SEEDS:-1}"
 NUM_EXPOSURES="${NUM_EXPOSURES:-1}"
@@ -34,14 +34,16 @@ WANDB_ENTITY="${WANDB_ENTITY:-maytusp}"
 WANDB_GROUP="${WANDB_GROUP:-jax_${ALGO}_cont_dmc}"
 WANDB_MODE="${WANDB_MODE:-online}"
 LOGDIR="${LOGDIR:-logs/jax_${ALGO}_cont_dmc}"
-SF_DIM="${SF_DIM:-16}"
-NORMALIZE_SF_FEATURES="${NORMALIZE_SF_FEATURES:-true}"
-SF_TASK_LR="${SF_TASK_LR:-1e-5}"
+
 PREDNET_GAMMAS="${PREDNET_GAMMAS:-0.1,0.5,0.95}"
 PREDNET_LOSS_WEIGHT="${PREDNET_LOSS_WEIGHT:-0.1}"
 PREDNET_SELF_WEIGHT="${PREDNET_SELF_WEIGHT:-1.0}"
 PREDNET_TOPDOWN_WEIGHT="${PREDNET_TOPDOWN_WEIGHT:-1.0}"
 PREDNET_USE_TASK_VECTOR="${PREDNET_USE_TASK_VECTOR:-false}"
+
+SF_DIM="${SF_DIM:-16}"
+NORMALIZE_SF_FEATURES="${NORMALIZE_SF_FEATURES:-true}"
+SF_TASK_LR="${SF_TASK_LR:-1e-5}"
 
 for seed in ${SEEDS}; do
   cmd=(
@@ -67,26 +69,16 @@ for seed in ${SEEDS}; do
     --wandb_mode="${WANDB_MODE}"
     --logdir="${LOGDIR}"
     --suffix="jax_${ALGO}_cont_dmc_seed${seed}"
+    --prednet_gammas="${PREDNET_GAMMAS}"
+    --prednet_loss_weight="${PREDNET_LOSS_WEIGHT}"
+    --prednet_self_weight="${PREDNET_SELF_WEIGHT}"
+    --prednet_topdown_weight="${PREDNET_TOPDOWN_WEIGHT}"
+    --prednet_use_task_vector="${PREDNET_USE_TASK_VECTOR}"
+    --sf_dim="${SF_DIM}"
+    --normalize_sf_features="${NORMALIZE_SF_FEATURES}"
+    --sf_task_lr="${SF_TASK_LR}"
   )
 
-  if [[ "${ALGO}" == "sac_sf" ]]; then
-    cmd+=(
-      --sf_dim="${SF_DIM}"
-      --normalize_sf_features="${NORMALIZE_SF_FEATURES}"
-      --sf_task_lr="${SF_TASK_LR}"
-    )
-  elif [[ "${ALGO}" == "sac_prednet" ]]; then
-    cmd+=(
-      --prednet_gammas="${PREDNET_GAMMAS}"
-      --prednet_loss_weight="${PREDNET_LOSS_WEIGHT}"
-      --prednet_self_weight="${PREDNET_SELF_WEIGHT}"
-      --prednet_topdown_weight="${PREDNET_TOPDOWN_WEIGHT}"
-      --prednet_use_task_vector="${PREDNET_USE_TASK_VECTOR}"
-      --sf_dim="${SF_DIM}"
-      --normalize_sf_features="${NORMALIZE_SF_FEATURES}"
-      --sf_task_lr="${SF_TASK_LR}"
-    )
-  fi
-
+  echo "${cmd[@]}"
   "${cmd[@]}"
 done

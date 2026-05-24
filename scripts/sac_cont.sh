@@ -37,6 +37,11 @@ LOGDIR="${LOGDIR:-logs/jax_${ALGO}_cont_dmc}"
 SF_DIM="${SF_DIM:-16}"
 NORMALIZE_SF_FEATURES="${NORMALIZE_SF_FEATURES:-true}"
 SF_TASK_LR="${SF_TASK_LR:-1e-5}"
+PREDNET_GAMMAS="${PREDNET_GAMMAS:-0.1,0.5,0.95}"
+PREDNET_LOSS_WEIGHT="${PREDNET_LOSS_WEIGHT:-0.1}"
+PREDNET_SELF_WEIGHT="${PREDNET_SELF_WEIGHT:-1.0}"
+PREDNET_TOPDOWN_WEIGHT="${PREDNET_TOPDOWN_WEIGHT:-1.0}"
+PREDNET_USE_TASK_VECTOR="${PREDNET_USE_TASK_VECTOR:-false}"
 
 for seed in ${SEEDS}; do
   cmd=(
@@ -66,6 +71,17 @@ for seed in ${SEEDS}; do
 
   if [[ "${ALGO}" == "sac_sf" ]]; then
     cmd+=(
+      --sf_dim="${SF_DIM}"
+      --normalize_sf_features="${NORMALIZE_SF_FEATURES}"
+      --sf_task_lr="${SF_TASK_LR}"
+    )
+  elif [[ "${ALGO}" == "sac_prednet" ]]; then
+    cmd+=(
+      --prednet_gammas="${PREDNET_GAMMAS}"
+      --prednet_loss_weight="${PREDNET_LOSS_WEIGHT}"
+      --prednet_self_weight="${PREDNET_SELF_WEIGHT}"
+      --prednet_topdown_weight="${PREDNET_TOPDOWN_WEIGHT}"
+      --prednet_use_task_vector="${PREDNET_USE_TASK_VECTOR}"
       --sf_dim="${SF_DIM}"
       --normalize_sf_features="${NORMALIZE_SF_FEATURES}"
       --sf_task_lr="${SF_TASK_LR}"

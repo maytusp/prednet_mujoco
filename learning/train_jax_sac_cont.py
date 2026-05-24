@@ -26,6 +26,8 @@ from absl import flags
 from absl import logging
 from custombrax.training.agents.sac import networks as sac_networks
 from custombrax.training.agents.sac import train as sac
+from custombrax.training.agents.sac_prednet import networks as sac_prednet_networks
+from custombrax.training.agents.sac_prednet import train as sac_prednet
 from custombrax.training.agents.sac_sf_simple import networks as sac_sf_networks
 from custombrax.training.agents.sac_sf_simple import train as sac_sf
 from etils import epath
@@ -78,7 +80,9 @@ _PHASE_TIMESTEPS = flags.DEFINE_list(
     " there are more phases than entries.",
 )
 _IMPL = flags.DEFINE_enum("impl", "jax", ["jax", "warp"], "MJX implementation")
-_ALGO = flags.DEFINE_enum("algo", "sac", ["sac", "sac_sf"], "Learner.")
+_ALGO = flags.DEFINE_enum(
+    "algo", "sac", ["sac", "sac_sf", "sac_prednet"], "Learner."
+)
 _PLAYGROUND_CONFIG_OVERRIDES = flags.DEFINE_string(
     "playground_config_overrides", None, "JSON env config overrides."
 )
@@ -149,6 +153,25 @@ _NORMALIZE_SF_FEATURES = flags.DEFINE_boolean(
 _SF_TASK_LR = flags.DEFINE_float(
     "sf_task_lr", 1e-5, "Learning rate for SAC-SF reward task vector"
 )
+_PREDNET_GAMMAS = flags.DEFINE_list(
+    "prednet_gammas",
+    ["0.1", "0.5", "0.95"],
+    "Comma-separated predictive coding discount factors.",
+)
+_PREDNET_LOSS_WEIGHT = flags.DEFINE_float(
+    "prednet_loss_weight", 0.1, "Weight for SAC-PredNet auxiliary loss."
+)
+_PREDNET_SELF_WEIGHT = flags.DEFINE_float(
+    "prednet_self_weight", 1.0, "Weight for self-prediction loss."
+)
+_PREDNET_TOPDOWN_WEIGHT = flags.DEFINE_float(
+    "prednet_topdown_weight", 1.0, "Weight for top-down prediction loss."
+)
+_PREDNET_USE_TASK_VECTOR = flags.DEFINE_boolean(
+    "prednet_use_task_vector",
+    False,
+    "Append and learn a SAC-SF-style task vector for SAC-PredNet.",
+)
 _LOGDIR = flags.DEFINE_string("logdir", None, "Directory for logging.")
 _WARP_KERNEL_CACHE_DIR = flags.DEFINE_string(
     "warp_kernel_cache_dir", None, "Directory for caching compiled Warp kernels."
@@ -182,6 +205,10 @@ def get_rl_config(env_name: str) -> config_dict.ConfigDict:
 
 def _optional_string(value: str | None) -> str | None:
   return None if value is None or value == "" else value
+
+
+def _prednet_gammas() -> tuple[float, ...]:
+  return tuple(float(value) for value in _PREDNET_GAMMAS.value)
 
 
 def _task_sequence() -> list[str]:
@@ -265,6 +292,12 @@ def main(argv):
     raise ValueError("No tasks provided.")
   if _ALGO.value == "sac_sf" and _SF_DIM.value <= 0:
     raise ValueError("--sf_dim must be positive when --algo=sac_sf")
+  prednet_task_dim = _SF_DIM.value if _PREDNET_USE_TASK_VECTOR.value else 0
+  if _ALGO.value == "sac_prednet" and _PREDNET_USE_TASK_VECTOR.value:
+    if _SF_DIM.value <= 0:
+      raise ValueError(
+          "--sf_dim must be positive when --prednet_use_task_vector=true"
+      )
 
   env_cfg_overrides = {"impl": _IMPL.value}
   if _PLAYGROUND_CONFIG_OVERRIDES.value is not None:
@@ -293,6 +326,11 @@ def main(argv):
             "task_sequence": tasks,
             "num_exposures": _NUM_EXPOSURES.value,
             "sf_dim": _SF_DIM.value,
+            "prednet_gammas": _prednet_gammas(),
+            "prednet_loss_weight": _PREDNET_LOSS_WEIGHT.value,
+            "prednet_self_weight": _PREDNET_SELF_WEIGHT.value,
+            "prednet_topdown_weight": _PREDNET_TOPDOWN_WEIGHT.value,
+            "prednet_use_task_vector": _PREDNET_USE_TASK_VECTOR.value,
         },
     )
 
@@ -306,8 +344,16 @@ def main(argv):
   phase_index = 0
   times = [time.monotonic()]
 
-  network_module = sac_sf_networks if _ALGO.value == "sac_sf" else sac_networks
-  train_module = sac_sf if _ALGO.value == "sac_sf" else sac
+  network_module = {
+      "sac": sac_networks,
+      "sac_sf": sac_sf_networks,
+      "sac_prednet": sac_prednet_networks,
+  }[_ALGO.value]
+  train_module = {
+      "sac": sac,
+      "sac_sf": sac_sf,
+      "sac_prednet": sac_prednet,
+  }[_ALGO.value]
 
   for exposure_id in range(_NUM_EXPOSURES.value):
     for task_id, env_name in enumerate(tasks):
@@ -349,6 +395,17 @@ def main(argv):
       if _ALGO.value == "sac_sf":
         extra_train_kwargs.update(
             sf_dim=_SF_DIM.value,
+            normalize_sf_features=_NORMALIZE_SF_FEATURES.value,
+            sf_task_lr=_SF_TASK_LR.value,
+        )
+      elif _ALGO.value == "sac_prednet":
+        extra_train_kwargs.update(
+            prednet_gammas=_prednet_gammas(),
+            prednet_loss_weight=_PREDNET_LOSS_WEIGHT.value,
+            prednet_self_weight=_PREDNET_SELF_WEIGHT.value,
+            prednet_topdown_weight=_PREDNET_TOPDOWN_WEIGHT.value,
+            prednet_use_task_vector=_PREDNET_USE_TASK_VECTOR.value,
+            sf_dim=prednet_task_dim,
             normalize_sf_features=_NORMALIZE_SF_FEATURES.value,
             sf_task_lr=_SF_TASK_LR.value,
         )
