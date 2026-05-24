@@ -1,0 +1,118 @@
+Script directory: /mnt/iusers01/fatpou01/compsci01/n70579mp/scratch/prednet_mujoco
+wandb: [wandb.login()] Loaded credentials for https://api.wandb.ai from /mnt/iusers01/fatpou01/compsci01/n70579mp/.netrc.
+wandb: Currently logged in as: maytusp to https://api.wandb.ai. Use `wandb login --relogin` to force relogin
+wandb: Tracking run with wandb version 0.27.0
+wandb: Run data is saved locally in /net/scratch/n70579mp/prednet_mujoco/wandb/run-20260523_183819-0u36c40y
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run CheetahRun-ppo-cont-20260523-183818-jax_ppo_cont_dmc_seed1
+wandb: ⭐️ View project at https://wandb.ai/maytusp/prednet_rl
+wandb: 🚀 View run at https://wandb.ai/maytusp/prednet_rl/runs/0u36c40y
+wandb: WARNING Tried to log to step 10000000 that is less than the current step 88473600. Steps must be monotonically increasing, so this data will be ignored. See https://wandb.me/define-metric to log data out of order.
+wandb: WARNING Tried to log to step 19830400 that is less than the current step 88473600. Steps must be monotonically increasing, so this data will be ignored. See https://wandb.me/define-metric to log data out of order.
+wandb: WARNING Tried to log to step 29660800 that is less than the current step 88473600. Steps must be monotonically increasing, so this data will be ignored. See https://wandb.me/define-metric to log data out of order.
+wandb: WARNING Tried to log to step 39491200 that is less than the current step 88473600. Steps must be monotonically increasing, so this data will be ignored. See https://wandb.me/define-metric to log data out of order.
+wandb: WARNING Tried to log to step 49321600 that is less than the current step 88473600. Steps must be monotonically increasing, so this data will be ignored. See https://wandb.me/define-metric to log data out of order.
+wandb: WARNING Tried to log to step 59152000 that is less than the current step 88473600. Steps must be monotonically increasing, so this data will be ignored. See https://wandb.me/define-metric to log data out of order.
+wandb: WARNING Tried to log to step 68982400 that is less than the current step 88473600. Steps must be monotonically increasing, so this data will be ignored. See https://wandb.me/define-metric to log data out of order.
+wandb: WARNING Tried to log to step 78812800 that is less than the current step 88473600. Steps must be monotonically increasing, so this data will be ignored. See https://wandb.me/define-metric to log data out of order.
+wandb: WARNING Tried to log to step 20000000 that is less than the current step 98473600. Steps must be monotonically increasing, so this data will be ignored. See https://wandb.me/define-metric to log data out of order.
+wandb: WARNING Tried to log to step 29830400 that is less than the current step 98473600. Steps must be monotonically increasing, so this data will be ignored. See https://wandb.me/define-metric to log data out of order.
+wandb: WARNING Tried to log to step 39660800 that is less than the current step 98473600. Steps must be monotonically increasing, so this data will be ignored. See https://wandb.me/define-metric to log data out of order.
+wandb: WARNING Tried to log to step 49491200 that is less than the current step 98473600. Steps must be monotonically increasing, so this data will be ignored. See https://wandb.me/define-metric to log data out of order.
+wandb: WARNING Tried to log to step 59321600 that is less than the current step 98473600. Steps must be monotonically increasing, so this data will be ignored. See https://wandb.me/define-metric to log data out of order.
+wandb: WARNING Tried to log to step 69152000 that is less than the current step 98473600. Steps must be monotonically increasing, so this data will be ignored. See https://wandb.me/define-metric to log data out of order.
+wandb: WARNING Tried to log to step 78982400 that is less than the current step 98473600. Steps must be monotonically increasing, so this data will be ignored. See https://wandb.me/define-metric to log data out of order.
+wandb: WARNING Tried to log to step 88812800 that is less than the current step 98473600. Steps must be monotonically increasing, so this data will be ignored. See https://wandb.me/define-metric to log data out of order.
+wandb: WARNING Tried to log to step 30000000 that is less than the current step 108473600. Steps must be monotonically increasing, so this data will be ignored. See https://wandb.me/define-metric to log data out of order.
+wandb: WARNING Tried to log to step 39830400 that is less than the current step 108473600. Steps must be monotonically increasing, so this data will be ignored. See https://wandb.me/define-metric to log data out of order.
+wandb: WARNING Tried to log to step 49660800 that is less than the current step 108473600. Steps must be monotonically increasing, so this data will be ignored. See https://wandb.me/define-metric to log data out of order.
+wandb: WARNING Tried to log to step 59491200 that is less than the current step 108473600. Steps must be monotonically increasing, so this data will be ignored. See https://wandb.me/define-metric to log data out of order.
+wandb: WARNING Tried to log to step 69321600 that is less than the current step 108473600. Steps must be monotonically increasing, so this data will be ignored. See https://wandb.me/define-metric to log data out of order.
+wandb: WARNING Tried to log to step 79152000 that is less than the current step 108473600. Steps must be monotonically increasing, so this data will be ignored. See https://wandb.me/define-metric to log data out of order.
+wandb: WARNING Tried to log to step 88982400 that is less than the current step 108473600. Steps must be monotonically increasing, so this data will be ignored. See https://wandb.me/define-metric to log data out of order.
+wandb: WARNING Tried to log to step 98812800 that is less than the current step 108473600. Steps must be monotonically increasing, so this data will be ignored. See https://wandb.me/define-metric to log data out of order.
+wandb: updating run metadata
+wandb: uploading output.log; uploading wandb-summary.json; uploading config.yaml
+wandb: 
+wandb: Run history:
+wandb:      eval/avg_episode_length ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+wandb:          eval/episode_reward ▁▃▅▆▇▇████▄▄▄▄▅▆
+wandb:     eval/episode_reward/flip ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▇█
+wandb: eval/episode_reward/flip_std ▁▁▁▁▁▁▁▁▁▁▁▁▁▁█▇
+wandb:      eval/episode_reward/run ▁▃▅▆▇▇████▄▄▄▄▁▁
+wandb:  eval/episode_reward/run_std ▁▂▂▅▇█▇▂▁▇▂▅▁▁▁▁
+wandb:      eval/episode_reward_std ▁▂▂▅▇█▇▂▁▇▂▅▁▁▃▃
+wandb:         eval/epoch_eval_time ████▁▁▁▁▁▁▁▁▁▁▁▁
+wandb:                     eval/sps ▁▁▁▁▇███████▇▇▇▇
+wandb:      eval/std_episode_length ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+wandb:                          +18 ...
+wandb: 
+wandb: Run summary:
+wandb:      eval/avg_episode_length 1000
+wandb:          eval/episode_reward 594.10114
+wandb:     eval/episode_reward/flip 594.10114
+wandb: eval/episode_reward/flip_std 16.97008
+wandb:      eval/episode_reward/run 0
+wandb:  eval/episode_reward/run_std 0
+wandb:      eval/episode_reward_std 16.97008
+wandb:         eval/epoch_eval_time 1.09799
+wandb:                     eval/sps 116576.14361
+wandb:      eval/std_episode_length 0
+wandb:                          +18 ...
+wandb: 
+wandb: 🚀 View run CheetahRun-ppo-cont-20260523-183818-jax_ppo_cont_dmc_seed1 at: https://wandb.ai/maytusp/prednet_rl/runs/0u36c40y
+wandb: ⭐️ View project at: https://wandb.ai/maytusp/prednet_rl
+wandb: Synced 5 W&B file(s), 0 media file(s), 0 artifact file(s) and 0 other file(s)
+wandb: Find logs at: ./wandb/run-20260523_183819-0u36c40y/logs
+Continual task sequence: ['CheetahRun', 'CheetahRunBackward', 'CheetahRunFast', 'CheetahFlip'] x 1
+Logs are being stored in: /net/scratch/n70579mp/prednet_mujoco/logs/jax_ppo_cont_dmc/CheetahRun-ppo-cont-20260523-183818-jax_ppo_cont_dmc_seed1
+
+=== Phase 0: exposure=0 task=0 env=CheetahRun ===
+0: CheetahRun reward=3.497
+9830400: CheetahRun reward=291.360
+19660800: CheetahRun reward=536.532
+29491200: CheetahRun reward=598.819
+39321600: CheetahRun reward=740.109
+49152000: CheetahRun reward=791.259
+58982400: CheetahRun reward=873.784
+68812800: CheetahRun reward=908.934
+78643200: CheetahRun reward=914.572
+88473600: CheetahRun reward=913.904
+
+=== Phase 1: exposure=0 task=1 env=CheetahRunBackward ===
+10000000: CheetahRunBackward reward=0.000
+19830400: CheetahRunBackward reward=8.176
+29660800: CheetahRunBackward reward=27.005
+39491200: CheetahRunBackward reward=165.289
+49321600: CheetahRunBackward reward=232.145
+59152000: CheetahRunBackward reward=283.914
+68982400: CheetahRunBackward reward=333.432
+78812800: CheetahRunBackward reward=367.709
+88643200: CheetahRunBackward reward=403.802
+98473600: CheetahRunBackward reward=426.142
+
+=== Phase 2: exposure=0 task=2 env=CheetahRunFast ===
+20000000: CheetahRunFast reward=11.265
+29830400: CheetahRunFast reward=24.015
+39660800: CheetahRunFast reward=83.949
+49491200: CheetahRunFast reward=313.961
+59321600: CheetahRunFast reward=342.288
+69152000: CheetahRunFast reward=284.103
+78982400: CheetahRunFast reward=396.749
+88812800: CheetahRunFast reward=424.021
+98643200: CheetahRunFast reward=440.741
+108473600: CheetahRunFast reward=452.436
+
+=== Phase 3: exposure=0 task=3 env=CheetahFlip ===
+30000000: CheetahFlip reward=505.896
+39830400: CheetahFlip reward=555.143
+49660800: CheetahFlip reward=577.275
+59491200: CheetahFlip reward=593.865
+69321600: CheetahFlip reward=606.084
+79152000: CheetahFlip reward=619.904
+88982400: CheetahFlip reward=278.240
+98812800: CheetahFlip reward=289.068
+108643200: CheetahFlip reward=532.677
+118473600: CheetahFlip reward=594.101
+Done continual PPO training.
+Total walltime: 1375.075168353971
