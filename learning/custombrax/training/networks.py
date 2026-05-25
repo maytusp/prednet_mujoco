@@ -845,6 +845,102 @@ def make_policy_network_vision(
   )
 
 
+def make_policy_network_stacked_frames(
+    param_size: int,
+    obs_size: int,
+    preprocess_observations_fn: types.PreprocessObservationFn = types.identity_observation_preprocessor,
+    hidden_layer_sizes: Sequence[int] = [256, 256],
+    activation: ActivationFn = linen.swish,
+    kernel_init: Initializer = jax.nn.initializers.lecun_uniform(),
+    layer_norm: bool = False,
+    frame_shape: Sequence[int] = (64, 64, 3),
+    state_size: int = 0,
+    normalise_channels: bool = False,
+    distribution_type: Literal['tanh_normal', 'normal'] = 'tanh_normal',
+    noise_std_type: Literal['scalar', 'log'] = 'scalar',
+    init_noise_std: float = 1.0,
+    state_dependent_std: bool = False,
+    mean_clip_scale: float | None = None,
+    mean_kernel_init: Initializer | None = None,
+    cnn_output_channels: Sequence[int] = (32, 64, 64),
+    cnn_kernel_size: Sequence[int] = (8, 4, 3),
+    cnn_stride: Sequence[int] = (4, 2, 1),
+    cnn_padding: str = 'SAME',
+    cnn_max_pool: bool = False,
+    cnn_global_pool: str = 'avg',
+) -> FeedForwardNetwork:
+  """Creates a CNN policy for flat stacked-frame observations."""
+  frame_shape = tuple(int(dim) for dim in frame_shape)
+  frame_size = 1
+  for dim in frame_shape:
+    frame_size *= dim
+  if obs_size != frame_size + state_size:
+    raise ValueError(
+        f'CNN policy expected obs_size={frame_size + state_size} from '
+        f'frame_shape={frame_shape} and state_size={state_size}, got '
+        f'obs_size={obs_size}.'
+    )
+
+  state_obs_key = 'state' if state_size else ''
+  if distribution_type == 'tanh_normal':
+    module = VisionMLP(
+        layer_sizes=list(hidden_layer_sizes) + [param_size],
+        activation=activation,
+        kernel_init=kernel_init,
+        layer_norm=layer_norm,
+        normalise_channels=normalise_channels,
+        state_obs_key=state_obs_key,
+        cnn_output_channels=cnn_output_channels,
+        cnn_kernel_size=cnn_kernel_size,
+        cnn_stride=cnn_stride,
+        cnn_padding=cnn_padding,
+        cnn_max_pool=cnn_max_pool,
+        cnn_global_pool=cnn_global_pool,
+    )
+  elif distribution_type == 'normal':
+    module = VisionPolicyWithStd(
+        param_size=param_size,
+        hidden_layer_sizes=hidden_layer_sizes,
+        activation=activation,
+        kernel_init=kernel_init,
+        layer_norm=layer_norm,
+        normalise_channels=normalise_channels,
+        state_obs_key=state_obs_key,
+        noise_std_type=noise_std_type,
+        init_noise_std=init_noise_std,
+        state_dependent_std=state_dependent_std,
+        mean_clip_scale=mean_clip_scale,
+        mean_kernel_init=mean_kernel_init,
+        cnn_output_channels=cnn_output_channels,
+        cnn_kernel_size=cnn_kernel_size,
+        cnn_stride=cnn_stride,
+        cnn_padding=cnn_padding,
+        cnn_max_pool=cnn_max_pool,
+        cnn_global_pool=cnn_global_pool,
+    )
+  else:
+    raise ValueError(
+        f'Unsupported distribution type: {distribution_type}. Must be one'
+        ' of "normal" or "tanh_normal".'
+    )
+
+  def to_vision_dict(obs):
+    frame_obs = obs[..., :frame_size].reshape(obs.shape[:-1] + frame_shape)
+    data = {'pixels/view_0': frame_obs}
+    if state_size:
+      data['state'] = obs[..., frame_size:]
+    return data
+
+  def apply(processor_params, policy_params, obs):
+    obs = preprocess_observations_fn(obs, processor_params)
+    return module.apply(policy_params, to_vision_dict(obs))
+
+  dummy_obs = jnp.zeros((1, obs_size))
+  return FeedForwardNetwork(
+      init=lambda key: module.init(key, to_vision_dict(dummy_obs)), apply=apply
+  )
+
+
 def make_value_network_vision(
     observation_size: Mapping[str, Tuple[int, ...]],
     preprocess_observations_fn: types.PreprocessObservationFn = types.identity_observation_preprocessor,

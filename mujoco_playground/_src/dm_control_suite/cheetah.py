@@ -33,6 +33,19 @@ FAST_RUN_SPEED = 20
 SPIN_SPEED = 5
 
 
+def default_vision_config() -> config_dict.ConfigDict:
+  return config_dict.create(
+      nworld=128,
+      cam_res=(64, 64),
+      use_textures=False,
+      use_shadows=False,
+      render_rgb=(True,),
+      render_depth=(False,),
+      enabled_geom_groups=[0, 1, 2],
+      cam_active=(True, False),  # [side, back]
+  )
+
+
 def default_config() -> config_dict.ConfigDict:
   return config_dict.create(
       ctrl_dt=0.01,
@@ -40,6 +53,7 @@ def default_config() -> config_dict.ConfigDict:
       episode_length=1000,
       action_repeat=1,
       vision=False,
+      vision_config=default_vision_config(),
       impl="warp",
       naconmax=100_000,
       njmax=100,
@@ -58,10 +72,7 @@ class Run(mjx_env.MjxEnv):
       config_overrides: Optional[Dict[str, Union[str, int, list[Any]]]] = None,
   ):
     super().__init__(config, config_overrides)
-    if self._config.vision:
-      raise NotImplementedError(
-          f"Vision not implemented for {self.__class__.__name__}."
-      )
+    self._vision = self._config.vision
 
     self._run_speed = run_speed
     self._forward = 1 if forward else -1
@@ -75,6 +86,14 @@ class Run(mjx_env.MjxEnv):
     self._mj_model.opt.timestep = self.sim_dt
     self._mjx_model = mjx.put_model(self._mj_model, impl=self._config.impl)
     self._post_init()
+
+    if self._vision:
+      vision_kwargs = self._config.vision_config.to_dict()
+      self._rc = mjx.create_render_context(
+          mjm=self._mj_model,
+          **vision_kwargs,
+      )
+      self._rc_pytree = self._rc.pytree()
 
   def _post_init(self) -> None:
     self._torso_id = self.mj_model.body("torso").id
@@ -114,16 +133,39 @@ class Run(mjx_env.MjxEnv):
     info = {"rng": rng}
 
     reward, done = jp.zeros(2)  # pylint: disable=redefined-outer-name
-    obs = self._get_obs(data, info)
+    if self._vision:
+      frame = self._render_pixels(data)
+      frame_stack = jp.repeat(frame, 3, axis=-1)
+      info["frame_stack"] = frame_stack
+      obs = frame_stack.reshape(-1)
+    else:
+      obs = self._get_obs(data, info)
     return mjx_env.State(data, obs, reward, done, metrics, info)
 
   def step(self, state: mjx_env.State, action: jax.Array) -> mjx_env.State:
     data = mjx_env.step(self.mjx_model, state.data, action, self.n_substeps)
     reward = self._get_reward(data, action, state.info, state.metrics)  # pylint: disable=redefined-outer-name
-    obs = self._get_obs(data, state.info)
+    info = state.info
+    if self._vision:
+      frame = self._render_pixels(data)
+      frame_stack = jp.concatenate(
+          [state.info["frame_stack"][..., 1:], frame],
+          axis=-1,
+      )
+      info = dict(state.info)
+      info["frame_stack"] = frame_stack
+      obs = frame_stack.reshape(-1)
+    else:
+      obs = self._get_obs(data, state.info)
     done = jp.isnan(data.qpos).any() | jp.isnan(data.qvel).any()
     done = done.astype(float)
-    return mjx_env.State(data, obs, reward, done, state.metrics, state.info)
+    return mjx_env.State(data, obs, reward, done, state.metrics, info)
+
+  def _render_pixels(self, data: mjx.Data) -> jax.Array:
+    render_data = mjx.refit_bvh(self.mjx_model, data, self._rc_pytree)
+    out = mjx.render(self.mjx_model, render_data, self._rc_pytree)
+    rgb = mjx.get_rgb(self._rc_pytree, 0, out[0])
+    return jp.mean(rgb, axis=-1, keepdims=True) - 0.5
 
   def _get_obs(self, data: mjx.Data, info: dict[str, Any]) -> jax.Array:
     del info  # Unused.

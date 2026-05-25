@@ -24,10 +24,13 @@ import warnings
 from absl import app
 from absl import flags
 from absl import logging
+from custombrax.training.agents.sac import checkpoint as sac_checkpoint
 from custombrax.training.agents.sac import networks as sac_networks
 from custombrax.training.agents.sac import train as sac
+from custombrax.training.agents.sac_prednet import checkpoint as sac_prednet_checkpoint
 from custombrax.training.agents.sac_prednet import networks as sac_prednet_networks
 from custombrax.training.agents.sac_prednet import train as sac_prednet
+from custombrax.training.agents.sac_sf_simple import checkpoint as sac_sf_checkpoint
 from custombrax.training.agents.sac_sf_simple import networks as sac_sf_networks
 from custombrax.training.agents.sac_sf_simple import train as sac_sf
 from etils import epath
@@ -85,6 +88,12 @@ _ALGO = flags.DEFINE_enum(
 )
 _PLAYGROUND_CONFIG_OVERRIDES = flags.DEFINE_string(
     "playground_config_overrides", None, "JSON env config overrides."
+)
+_VISION = flags.DEFINE_boolean("vision", False, "Use pixel observations")
+_VISION_FRAME_SHAPE = flags.DEFINE_list(
+    "vision_frame_shape",
+    ["64", "64", "3"],
+    "Stacked-frame shape for --vision CNN policy.",
 )
 _LOAD_CHECKPOINT_PATH = flags.DEFINE_string(
     "load_checkpoint_path", None, "Optional checkpoint for the first phase."
@@ -211,6 +220,10 @@ def _prednet_gammas() -> tuple[float, ...]:
   return tuple(float(value) for value in _PREDNET_GAMMAS.value)
 
 
+def _vision_frame_shape() -> tuple[int, ...]:
+  return tuple(int(value) for value in _VISION_FRAME_SHAPE.value)
+
+
 def _task_sequence() -> list[str]:
   return [task for task in (_TASK_SEQUENCE.value or [_ENV_NAME.value]) if task]
 
@@ -300,6 +313,8 @@ def main(argv):
       )
 
   env_cfg_overrides = {"impl": _IMPL.value}
+  if _VISION.value:
+    env_cfg_overrides["vision"] = True
   if _PLAYGROUND_CONFIG_OVERRIDES.value is not None:
     env_cfg_overrides.update(json.loads(_PLAYGROUND_CONFIG_OVERRIDES.value))
 
@@ -331,6 +346,8 @@ def main(argv):
             "prednet_self_weight": _PREDNET_SELF_WEIGHT.value,
             "prednet_topdown_weight": _PREDNET_TOPDOWN_WEIGHT.value,
             "prednet_use_task_vector": _PREDNET_USE_TASK_VECTOR.value,
+            "vision": _VISION.value,
+            "vision_frame_shape": _vision_frame_shape(),
         },
     )
 
@@ -354,6 +371,11 @@ def main(argv):
       "sac_sf": sac_sf,
       "sac_prednet": sac_prednet,
   }[_ALGO.value]
+  checkpoint_module = {
+      "sac": sac_checkpoint,
+      "sac_sf": sac_sf_checkpoint,
+      "sac_prednet": sac_prednet_checkpoint,
+  }[_ALGO.value]
 
   for exposure_id in range(_NUM_EXPOSURES.value):
     for task_id, env_name in enumerate(tasks):
@@ -364,23 +386,33 @@ def main(argv):
       env_cfg = registry.get_default_config(env_name)
       sac_params = get_rl_config(env_name)
       _apply_overrides(sac_params, phase_index)
-
-      with open(phase_dir / "config.json", "w", encoding="utf-8") as fp:
-        json.dump(env_cfg.to_dict(), fp, indent=4)
-
-      env = registry.load(
-          env_name, config=env_cfg, config_overrides=env_cfg_overrides
-      )
-      eval_env = registry.load(
-          env_name,
-          config=registry.get_default_config(env_name),
-          config_overrides=env_cfg_overrides,
-      )
-
+      if _VISION.value and not _NORMALIZE_OBSERVATIONS.present:
+        sac_params.normalize_observations = False
+      if _VISION.value:
+        sac_params.network_factory.policy_network_type = "cnn"
+        sac_params.network_factory.policy_frame_shape = _vision_frame_shape()
       training_params = dict(sac_params)
       training_params.pop("network_factory", None)
       num_eval_envs = training_params.pop("num_eval_envs", 128)
       training_params.pop("num_resets_per_eval", None)
+
+      with open(phase_dir / "config.json", "w", encoding="utf-8") as fp:
+        json.dump(env_cfg.to_dict(), fp, indent=4)
+
+      train_overrides = dict(env_cfg_overrides)
+      if _VISION.value:
+        train_overrides["vision_config.nworld"] = sac_params.num_envs
+      env = registry.load(
+          env_name, config=env_cfg, config_overrides=train_overrides
+      )
+      eval_overrides = dict(env_cfg_overrides)
+      if _VISION.value:
+        eval_overrides["vision_config.nworld"] = num_eval_envs
+      eval_env = registry.load(
+          env_name,
+          config=registry.get_default_config(env_name),
+          config_overrides=eval_overrides,
+      )
 
       if _DOMAIN_RANDOMIZATION.value:
         training_params["randomization_fn"] = registry.get_domain_randomizer(
@@ -453,6 +485,34 @@ def main(argv):
           **extra_train_kwargs,
       )
       del make_policy
+
+      phase_state_ckpt_path = phase_dir / "phase_state_checkpoints"
+      checkpoint_network_factory = network_factory
+      checkpoint_observation_size = env.observation_size
+      if _ALGO.value == "sac_sf":
+        checkpoint_network_factory = functools.partial(
+            network_factory,
+            sf_dim=_SF_DIM.value,
+        )
+      elif _ALGO.value == "sac_prednet":
+        checkpoint_network_factory = functools.partial(
+            network_factory,
+            prednet_gammas=_prednet_gammas(),
+            sf_dim=prednet_task_dim,
+        )
+        checkpoint_observation_size += prednet_task_dim
+      ckpt_config = checkpoint_module.network_config(
+          observation_size=checkpoint_observation_size,
+          action_size=env.action_size,
+          normalize_observations=sac_params.normalize_observations,
+          network_factory=checkpoint_network_factory,
+      )
+      checkpoint_module.save(
+          phase_state_ckpt_path,
+          int(sac_params.num_timesteps),
+          restore_params,
+          ckpt_config,
+      )
       restore_checkpoint_path = None
       cumulative_steps += int(sac_params.num_timesteps)
       phase_index += 1

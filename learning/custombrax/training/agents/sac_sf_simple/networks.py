@@ -93,6 +93,15 @@ def make_sac_networks(
     q_network_kernel_init_fn: networks.Initializer = jax.nn.initializers.lecun_uniform,
     q_network_kernel_init_kwargs: Mapping[str, Any] | None = None,
     sf_dim: int = 0,
+    policy_network_type: Literal['mlp', 'cnn'] = 'mlp',
+    policy_frame_shape: Sequence[int] = (64, 64, 3),
+    policy_normalise_channels: bool = False,
+    policy_cnn_output_channels: Sequence[int] = (32, 64, 64),
+    policy_cnn_kernel_size: Sequence[int] = (8, 4, 3),
+    policy_cnn_stride: Sequence[int] = (4, 2, 1),
+    policy_cnn_padding: str = 'SAME',
+    policy_cnn_max_pool: bool = False,
+    policy_cnn_global_pool: str = 'avg',
 ) -> SACNetworks:
   """Make SAC networks."""
   policy_kernel_init_kwargs = policy_network_kernel_init_kwargs or {}
@@ -112,19 +121,48 @@ def make_sac_networks(
         f'Unsupported distribution type: {distribution_type}. Must be one'
         ' of "normal" or "tanh_normal".'
     )
-  policy_network = networks.make_policy_network(
-      parametric_action_distribution.param_size,
-      observation_size,
-      preprocess_observations_fn=preprocess_observations_fn,
-      hidden_layer_sizes=hidden_layer_sizes,
-      activation=activation,
-      layer_norm=policy_network_layer_norm,
-      distribution_type=distribution_type,
-      noise_std_type=noise_std_type,
-      init_noise_std=init_noise_std,
-      state_dependent_std=state_dependent_std,
-      kernel_init=policy_network_kernel_init_fn(policy_kernel_init_kwargs),
-  )
+  if policy_network_type == 'mlp':
+    policy_network = networks.make_policy_network(
+        parametric_action_distribution.param_size,
+        observation_size,
+        preprocess_observations_fn=preprocess_observations_fn,
+        hidden_layer_sizes=hidden_layer_sizes,
+        activation=activation,
+        layer_norm=policy_network_layer_norm,
+        distribution_type=distribution_type,
+        noise_std_type=noise_std_type,
+        init_noise_std=init_noise_std,
+        state_dependent_std=state_dependent_std,
+        kernel_init=policy_network_kernel_init_fn(**policy_kernel_init_kwargs),
+    )
+  elif policy_network_type == 'cnn':
+    policy_network = networks.make_policy_network_stacked_frames(
+        parametric_action_distribution.param_size,
+        observation_size,
+        preprocess_observations_fn=preprocess_observations_fn,
+        hidden_layer_sizes=hidden_layer_sizes,
+        activation=activation,
+        layer_norm=policy_network_layer_norm,
+        frame_shape=policy_frame_shape,
+        state_size=sf_dim,
+        normalise_channels=policy_normalise_channels,
+        distribution_type=distribution_type,
+        noise_std_type=noise_std_type,
+        init_noise_std=init_noise_std,
+        state_dependent_std=state_dependent_std,
+        kernel_init=policy_network_kernel_init_fn(**policy_kernel_init_kwargs),
+        cnn_output_channels=policy_cnn_output_channels,
+        cnn_kernel_size=policy_cnn_kernel_size,
+        cnn_stride=policy_cnn_stride,
+        cnn_padding=policy_cnn_padding,
+        cnn_max_pool=policy_cnn_max_pool,
+        cnn_global_pool=policy_cnn_global_pool,
+    )
+  else:
+    raise ValueError(
+        f'Unsupported policy_network_type: {policy_network_type}. Must be'
+        ' "mlp" or "cnn".'
+    )
   if sf_dim:
     q_network = make_sf_q_network(
         observation_size,
