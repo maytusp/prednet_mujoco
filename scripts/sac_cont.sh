@@ -17,7 +17,7 @@ export JAX_DEFAULT_MATMUL_PRECISION="${JAX_DEFAULT_MATMUL_PRECISION:-highest}"
 ALGO="${ALGO:-sac}"
 PHASE1_TASK="${PHASE1_TASK:-CheetahRun}"
 PHASE2_TASKS="${PHASE2_TASKS:-CheetahRunBackward CheetahRunFast CheetahFlip}"
-SEEDS="${SEEDS:-1 2 3}"
+SEEDS="${SEEDS:-1,2,3}"
 NUM_EXPOSURES="${NUM_EXPOSURES:-1}"
 PHASE_TIMESTEPS="${PHASE_TIMESTEPS:-10000000}"
 PHASE1_TIMESTEPS="${PHASE1_TIMESTEPS:-${PHASE_TIMESTEPS%%,*}}"
@@ -36,8 +36,18 @@ BATCH_SIZE="${BATCH_SIZE:-512}"
 GRAD_UPDATES_PER_STEP="${GRAD_UPDATES_PER_STEP:-8}"
 MIN_REPLAY_SIZE="${MIN_REPLAY_SIZE:-8192}"
 MAX_REPLAY_SIZE="${MAX_REPLAY_SIZE:-4194304}"
-IMPL="${IMPL:-jax}"
 VISION="${VISION:-true}"
+if [[ -z "${IMPL:-}" ]]; then
+  if [[ "${VISION}" == "true" ]]; then
+    IMPL="warp"
+  else
+    IMPL="jax"
+  fi
+fi
+if [[ "${VISION}" == "true" && "${IMPL}" != "warp" ]]; then
+  echo "VISION=true requires IMPL=warp because MJX pixel rendering uses MuJoCo Warp." >&2
+  exit 1
+fi
 VISION_FRAME_SHAPE="${VISION_FRAME_SHAPE:-64,64,3}"
 NORMALIZE_OBSERVATIONS="${NORMALIZE_OBSERVATIONS:-false}"
 USE_WANDB="${USE_WANDB:-true}"
@@ -55,7 +65,7 @@ PREDNET_SELF_WEIGHT="${PREDNET_SELF_WEIGHT:-1.0}"
 PREDNET_TOPDOWN_WEIGHT="${PREDNET_TOPDOWN_WEIGHT:-1.0}"
 PREDNET_USE_TASK_VECTOR="${PREDNET_USE_TASK_VECTOR:-false}"
 
-for seed in ${SEEDS}; do
+for seed in ${SEEDS//,/ }; do
   phase1_suffix="${PHASE1_TASK}_shared_phase1_jax_${ALGO}_cont_dmc_seed${seed}"
   phase1_cmd=(
     python learning/train_jax_sac_cont.py
@@ -113,8 +123,7 @@ for seed in ${SEEDS}; do
     exit 1
   fi
 
-  phase2_seed=$((seed + 1))
-  for phase2_task in ${PHASE2_TASKS}; do
+  for phase2_task in ${PHASE2_TASKS//,/ }; do
     transfer_suffix="${PHASE1_TASK}_to_${phase2_task}_jax_${ALGO}_cont_dmc_seed${seed}"
     cmd=(
       python learning/train_jax_sac_cont.py
@@ -125,7 +134,7 @@ for seed in ${SEEDS}; do
       --phase_timesteps="${PHASE2_TIMESTEPS}"
       --num_timesteps="${NUM_TIMESTEPS}"
       --impl="${IMPL}"
-      --seed="${phase2_seed}"
+      --seed="${seed}"
       --num_envs="${NUM_ENVS}"
       --num_eval_envs="${NUM_EVAL_ENVS}"
       --num_evals="${NUM_EVALS}"

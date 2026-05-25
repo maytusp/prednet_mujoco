@@ -36,8 +36,18 @@ BATCH_SIZE="${BATCH_SIZE:-512}"
 GRAD_UPDATES_PER_STEP="${GRAD_UPDATES_PER_STEP:-8}"
 MIN_REPLAY_SIZE="${MIN_REPLAY_SIZE:-8192}"
 MAX_REPLAY_SIZE="${MAX_REPLAY_SIZE:-4194304}"
-IMPL="${IMPL:-jax}"
 VISION="${VISION:-true}"
+if [[ -z "${IMPL:-}" ]]; then
+  if [[ "${VISION}" == "true" ]]; then
+    IMPL="warp"
+  else
+    IMPL="jax"
+  fi
+fi
+if [[ "${VISION}" == "true" && "${IMPL}" != "warp" ]]; then
+  echo "VISION=true requires IMPL=warp because MJX pixel rendering uses MuJoCo Warp." >&2
+  exit 1
+fi
 VISION_FRAME_SHAPE="${VISION_FRAME_SHAPE:-64,64,3}"
 NORMALIZE_OBSERVATIONS="${NORMALIZE_OBSERVATIONS:-false}"
 USE_WANDB="${USE_WANDB:-true}"
