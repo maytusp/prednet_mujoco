@@ -124,7 +124,7 @@ class Run(mjx_env.MjxEnv):
 
     # Stabilize.
     data = mjx_env.step(self.mjx_model, data, jp.zeros(self.mjx_model.nu), 200)
-    data = data.replace(time=0.0)
+    data = data.replace(time=jp.asarray(0.0, dtype=data.qpos.dtype))
 
     metrics = {
         "reward/run": jp.zeros(()),
