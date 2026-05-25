@@ -35,7 +35,7 @@ SPIN_SPEED = 5
 
 def default_vision_config() -> config_dict.ConfigDict:
   return config_dict.create(
-      nworld=128,
+      nworld=1,
       cam_res=(64, 64),
       use_textures=False,
       use_shadows=False,

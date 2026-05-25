@@ -311,6 +311,11 @@ def main(argv):
       raise ValueError(
           "--sf_dim must be positive when --prednet_use_task_vector=true"
       )
+  if _VISION.value and _IMPL.value != "warp":
+    raise ValueError(
+        "--vision requires --impl=warp because MJX pixel rendering uses "
+        "mjx.refit_bvh, which is only implemented for MuJoCo Warp."
+    )
 
   env_cfg_overrides = {"impl": _IMPL.value}
   if _VISION.value:
@@ -401,13 +406,16 @@ def main(argv):
 
       train_overrides = dict(env_cfg_overrides)
       if _VISION.value:
-        train_overrides["vision_config.nworld"] = sac_params.num_envs
+        # The SAC training wrapper vmaps single-env resets/steps.  Keep the
+        # Warp render context single-world here so each vmapped env produces
+        # one stacked pixel observation, not the full env batch.
+        train_overrides["vision_config.nworld"] = 1
       env = registry.load(
           env_name, config=env_cfg, config_overrides=train_overrides
       )
       eval_overrides = dict(env_cfg_overrides)
       if _VISION.value:
-        eval_overrides["vision_config.nworld"] = num_eval_envs
+        eval_overrides["vision_config.nworld"] = 1
       eval_env = registry.load(
           env_name,
           config=registry.get_default_config(env_name),
